@@ -157,7 +157,7 @@ def release(source, path, h=term):
 # Claude Code はサブエージェントが変更か commit を残すと作業場を残し、cleanupPeriodDays（既定 30 日）たつまで消さない
 # （https://code.claude.com/docs/en/worktrees ）。2026-11-28 に my_notes に 12 個・guided-resolver に 15 個、計 11.7 GB 溜まり、VM の / が
 # 満杯になった（頼み 96620c）。--clean は前の版では PR の無い場所（no_pr）として残し続けた
-AGENT_DIR = (".claude", "worktrees")
+AGENT_DIR = chat.AGENT_WORKTREES
 AGENT_PREFIX = "agent-"
 # 最後に触ってからこの分数たつまでは消さない。Claude Code はサブエージェントの最初の走りの間は作業場に鍵（git worktree lock）を掛けるが、
 # 続きから再開したサブエージェントには掛けない（同じ文書の "Worktree locks and manual removal"）。消すのは変更も commit も無い物だけなので

@@ -308,6 +308,34 @@ class Watch(unittest.TestCase):
         self.assertIsNone(orders.seat_lost({**office, "talk_gone": False}, "w1:p1"))
         self.assertIsNone(orders.seat_lost({**office, "attrs": {**attrs, "delivered": "a1"}}, "w1:p1"))   # 納品済みはいつもの道
 
+    def test_vacant_desk_says_how_asks_reach_a_desk_whose_seated_talk_is_gone(self):
+        # 本社の窓口の席の会話がもう居ないときは「窓口の会話の次のターンの終わりに張られる」と言わない（受付 cbc737）
+        attrs = {"session": "s1", "pid": "7"}
+        office = {"head_office": True, "talk_gone": True, "attrs": attrs, "panes": [{"pane_id": "w1:p1", "agent_session": "s2"}]}
+        said = orders.vacant_desk(office, "w1:p1", self.inbox, self.place)
+        self.assertIn("窓口の席の会話 s1 はもう終わっている", said)
+        self.assertIn("窓 w1:p1 の会話 s2 は席に付いていないので、その会話のターンの終わりにも窓口の待ち受けは張られない", said)
+        self.assertIn("--take <受付> --ask <会社>/<受ける仕事>", said)
+        self.assertNotIn("次のターンの終わりに張られる", said)
+        self.assertIn("本社で会話を起動して --desk で席に付くまで渡らない", orders.vacant_desk(office, None, self.inbox, self.place))
+        self.assertIn("窓 w1:p1 の会話を特定できない", orders.vacant_desk({**office, "panes": [{"pane_id": "w1:p1"}]}, "w1:p1"))
+        wake.write_vacant(self.inbox, self.place, {"token": "t", "session": "s2", "pid": os.getpid(), "since": time.time()})
+        # 席が空いたときの待ち受けの処理を見るのは POSIX だけ（Windows は処理を見る口が無く、wake.vacant_watcher がいつも None）
+        self.assertIn("席が空いたときの待ち受けがその会話を再開させ" if os.name != "nt" else "待ち受けもまだ居ない",
+                      orders.vacant_desk(office, "w1:p1", self.inbox, self.place))
+        wake.write_vacant(self.inbox, self.place, {"token": "paused", "session": "s2", "pid": os.getpid(), "since": time.time()})
+        self.assertIn("待ち受けもまだ居ない", orders.vacant_desk(office, "w1:p1", self.inbox, self.place))   # 人の文で止めた
+        self.assertIsNone(orders.vacant_desk({**office, "talk_gone": False}, "w1:p1"))
+        self.assertIsNone(orders.vacant_desk({**office, "head_office": False}, "w1:p1"))
+        self.assertIsNone(orders.vacant_desk({**office, "panes": [{"pane_id": "w1:p1", "agent_session": "s1"}]}, "w1:p1"))
+        line = "\n".join(tree.lines([{"name": "co", "root": "/co", "info_source": None, "description": None, "skills": [],
+                                       "problems": [], "departments": [
+                                           {"head_office": True, "state": "idle", "sessions": 1, "name": "窓口", "role": None,
+                                            "account": None, "boss": None, "panes": [], "branch": "main", "queue": 1,
+                                            "queue_dir": "/q", "stalled": True, "seat_vacant": True}]}]))
+        self.assertIn("! 渡す待ち受けが居ない（窓口の席の会話がもう居ない。窓の会話が --desk で席に付くまで渡らない）"
+                      "（--nudge 窓口 --dry-run で動かし方を見る）", line)
+
     def test_held_is_the_last_hold_of_the_place_while_its_watcher_runs(self):
         # 待ち受けは居るが渡さずに待っている（2026-10-17 の割り振り）。台帳のその場所の最後の行が held のときだけ
         cwd = scratch()
@@ -1052,6 +1080,80 @@ class Hook(unittest.TestCase):
         # 部署は印で見分ける（部署の場所には会話の処理の番号が無い。--desk は部署の worktree で止まり、写った物は --task が消す）
         provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1"}, self.g)
         self.assertIsNone(self.plan(sid="s9", same=lambda pid: True))
+
+    @unittest.skipIf(os.name == "nt", "Windows は会話の処理が動いているかを見る口が無く、席の空いた本社の待ち受けを張らない（vacant_plan が None）")
+    def test_a_vacant_desk_seat_wakes_the_unseated_talk_once_per_id_without_handing(self):
+        # 窓口の会話が終わり、同じ窓で起動した席の無い会話には、窓口宛ての物が届いたら席が空いていると知らせて会話を再開させる。
+        # 渡さず、窓にも打たない（受付 cbc737。2026-11-28 の guided-resolver の本社）
+        provision.mark(self.src, self.src, {"role": "窓口", "name": "窓口", "session": "s1", "pid": str(dead_pid())}, self.g)
+        place = self.g.git_dir(self.src)
+
+        def vacant(sid="s9", running=lambda pid: False, cwd=None, attrs_of=None):
+            kw = {"attrs_of": attrs_of} if attrs_of else {}
+            return wake_hook.vacant_plan({"cwd": cwd or self.src, "session_id": sid}, env=self.env, parent=lambda: 8,
+                                         running=running, **kw)
+        self.assertIsNone(self.plan(sid="s9", cwd=self.src))   # 席の無い会話に窓口の待ち受けは張らない（今までどおり）
+        self.assertIsNone(vacant())   # 会社の受付箱がまだ無い（誰も頼んでいない）
+        os.makedirs(self.inbox, exist_ok=True)
+        self.assertIsNone(vacant(running=lambda pid: True))   # 席の会話の処理がまだ動いている
+        self.assertIsNone(vacant(sid="s1"))   # 席の会話そのもの
+        self.assertIsNone(vacant(attrs_of=lambda cwd: {"role": "窓口", "name": "窓口", "session": "s1"}))   # 処理の番号の無い席
+        self.assertIsNone(vacant(cwd=self.place, attrs_of=lambda cwd: {"role": "作業", "name": "調べ", "session": "s1", "pid": "7"}))
+        wake.claim(self.inbox, place, ["co/窓口"], "s1", os.getpid(), "t", time.time())
+        self.assertIsNone(vacant())   # 席の待ち受けの印の会話が生きている
+        os.remove(wake.mark_path(self.inbox, place))
+        got = vacant()
+        self.assertEqual((got["names"], got["desk"], got["seat"], got["session"], got["owner"]), (["co/窓口"], "窓口", "s1", "s9", 8))
+        self.assertEqual(os.path.realpath(got["place"]), os.path.realpath(place))
+
+        def watch(window=None, pause=lambda s: None, attrs_of=None, now=time.time):
+            err = io.StringIO()
+            kw = {"attrs_of": attrs_of} if attrs_of else {}
+            code = wake_hook.watch_vacant(got, err, h=window or Window(self.src), me=lambda: ME, parent=lambda: 8, pause=pause,
+                                          now=now, **kw)
+            return code, err.getvalue()
+        self.assertEqual(watch(window=Window(self.src, front=[{"pid": ME + 1, "argv": ["claude"]}]))[0], 0)   # 窓の前に居ない会話
+        wake.enqueue(self.inbox, place, {"id": "a1", "kind": "ask"})
+        window = Window(self.src)
+        code, said = watch(window)
+        self.assertEqual(code, 2)
+        self.assertIn("New ones arrived: a1 (1 ask(s) wait in the queue)", said)
+        self.assertIn("--desk", said)
+        self.assertEqual(window.writes, [])   # 窓には打たない
+        self.assertEqual([q["id"] for q in wake.queued(self.inbox, place)], ["a1"])   # 渡さない
+        self.assertEqual(wake.read_vacant(self.inbox, place)["told"], ["a1"])
+        self.assertIsNone(wake.read_mark(self.inbox, place))   # 渡す待ち受けの印は書かない（送る側が渡す待ち受けと数えない）
+        # 同じ受付は 2 度知らせず、台帳に足された窓口宛ての知らせで再開させる
+        log, said_once = os.path.join(self.inbox, wake.LOG), []
+
+        def say(seconds):
+            if not said_once:
+                said_once.append(1)
+                write_line(log, {"id": "n1", "kind": "say", "to": "co/窓口"})
+                write_line(log, {"id": "x1", "kind": "say", "to": "co/ほか"})
+        code, said = watch(pause=say)
+        self.assertEqual(code, 2)
+        self.assertIn("New ones arrived: n1 (", said)
+        self.assertEqual(wake.read_vacant(self.inbox, place)["told"], ["a1", "n1"])
+        # 人の文でターンが始まったら止まる（--pause）。席に会話が付いたら抜ける
+        with mock.patch.object(wake_hook, "vacant_plan", lambda payload: got):
+            self.assertEqual(watch(pause=lambda s: wake_hook.pause_here({"cwd": self.src, "session_id": "s9"}))[0], 0)
+        self.assertEqual(wake.read_vacant(self.inbox, place)["token"], "paused")
+        clock = [1000.0]
+
+        def tick(seconds):
+            clock[0] += wake.BEAT
+        self.assertEqual(watch(pause=tick, now=lambda: clock[0], attrs_of=lambda cwd: {"session": "s9"})[0], 0)
+
+    def test_a_vacant_desk_seat_is_not_watched_on_windows(self):
+        # Windows では席の会話の処理が動いているかを見られない（chat.running がいつも偽）ので、席が空いたと見ずに張らない
+        provision.mark(self.src, self.src, {"role": "窓口", "name": "窓口", "session": "s1", "pid": "7"}, self.g)
+        os.makedirs(self.inbox, exist_ok=True)
+        def vacant(posix):
+            return wake_hook.vacant_plan({"cwd": self.src, "session_id": "s9"}, env=self.env, parent=lambda: 8,
+                                         running=lambda pid: False, posix=posix)
+        self.assertIsNotNone(vacant(True))   # 同じ形でも POSIX では席が空いたと見る
+        self.assertIsNone(vacant(False))
 
     def test_a_fresh_department_is_not_cleared_while_an_ask_it_made_has_no_answer(self):
         # 受けた頼みも、そこから出した子の頼みも全部閉じたターンの終わりに空にする（持ち主の承認 dc0aa2。標準 6c364c が子の納品を待つ間）

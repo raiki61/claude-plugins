@@ -338,6 +338,29 @@ def bad_path(inbox, place):
     return os.path.join(_dir(inbox), key(place) + ".bad")
 
 
+def vacant_path(inbox, place):
+    """席の空いた本社で、席に付いていない会話の待ち受け（wake_hook.watch_vacant）の控え。{token, session, owner, pid, since, pos, told}。
+    名前が印（MARK_NAME）に当たらないので、送る側が待ち受けを探すとき（listening）に、渡す待ち受けと数えない（この待ち受けは渡さない）。"""
+    return os.path.join(_dir(inbox), key(place) + ".vacant.json")
+
+
+def read_vacant(inbox, place):
+    return _read_json(vacant_path(inbox, place))
+
+
+def write_vacant(inbox, place, state):
+    _replace(vacant_path(inbox, place), json.dumps(state, ensure_ascii=False))
+
+
+def vacant_watcher(inbox, place, posix=os.name != "nt"):
+    """席の空いた本社で、席に付いていない会話を再開させる待ち受け（wake_hook.watch_vacant）が動いていれば、その会話の id。ほかは None
+    （止めた〔token が paused〕・待ち受けの処理が居ない・Windows〔処理を見る口が無い〕）。"""
+    got = read_vacant(inbox, place)
+    if not posix or not got or got.get("token") == "paused":
+        return None
+    return got.get("session") if alive({"owner": got.get("pid"), "since": got.get("since")}, None, posix, chat.start_times()) else None
+
+
 def _replace(path, text):
     """書きかけを読ませない（一時のファイルに書いてから差し替える）。"""
     filex.replace(path, text)

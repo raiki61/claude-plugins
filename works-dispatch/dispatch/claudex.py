@@ -56,6 +56,7 @@ CACHE_READ_RATE = 0.1
 CACHE_READ_RATES = {"claude-opus-5-5": 0.05, "claude-sonnet-5-5": 0.05, "claude-fable-5-1": 0.025, "claude-mythos-5-1": 0.025}
 TAIL_BYTES = 262144   # 会話の記録の終わりから読む大きさ（tail_lines。最後の答えの行が入る大きさ）
 LOCAL_SETTINGS = ".claude/settings.local.json"   # リポジトリの中の、会話が書く手元だけの設定（許可の記録など。commit しない）
+AGENT_WORKTREES = (".claude", "worktrees")   # リポジトリの中の、isolation: worktree のサブエージェントの作業場を切る置き場（https://code.claude.com/docs/en/worktrees ）
 # 会話が起動するときにしか読まないファイル（/clear では読み直さない）。.claude/ の下（役の定義・設定・フックなど）と、ルートのこれら
 STARTUP_DIR, STARTUP_FILES = ".claude/", ("CLAUDE.md", "CLAUDE.local.md", ".mcp.json")
 # フックの入力の、会話の始まり・人の文の出来事の名前（hook_event_name）

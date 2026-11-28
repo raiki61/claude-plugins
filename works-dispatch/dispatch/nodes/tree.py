@@ -426,11 +426,14 @@ def lines(companies):
             fields += [f"役 {d['role'] or '-'}" + (f"（{role.seat_label(d['seat'])}）" if d.get("seat") else ""), f"アカウント {d['account'] or '-'}", f"頼み元 {d['boss'] or '-'}",
                        f"窓 {'あり' if d['panes'] else 'なし'}" + (away_note(d) if d.get("talk_away") else "")]
             if d.get("queue"):
-                stuck = ("渡す待ち受けが居ない" + ("（受けたままの頼みを持つ会話がもう居ない）" if d.get("holder_gone") else "")
+                stuck = ("渡す待ち受けが居ない" + ("（窓口の席の会話がもう居ない。窓の会話が --desk で席に付くまで渡らない"
+                                                  + ("。受けたままの頼みも持っている）" if d.get("holder_gone") else "）")
+                                                  if d.get("seat_vacant") else
+                                                  "（受けたままの頼みを持つ会話がもう居ない）" if d.get("holder_gone") else "")
                          if d.get("stalled") else WAIT_BLOCKS.format(*d["wait_blocks"]) if d.get("wait_blocks") else
                          (f"渡さずに待っている（{d['held']}）" if d.get("held") else None))
                 # 受けたままの頼みを持つ会話が居ない形は、--nudge で動かせないことがある（orders.seat_lost）ので、動かし方を先に見せる
-                how = "--dry-run で動かし方を見る" if d.get("holder_gone") else "で動かす"
+                how = "--dry-run で動かし方を見る" if d.get("holder_gone") or d.get("seat_vacant") else "で動かす"
                 fields.append(f"順番待ち {d['queue']} 件（{d['queue_dir']}）"
                               + (f"  ! {stuck}（--nudge {d['name'] or d['branch']} {how}）" if stuck else ""))
             if d.get("long_wait"):
