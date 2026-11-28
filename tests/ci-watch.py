@@ -247,7 +247,7 @@ def mine(inbox, place_common):
     # 閉じた時刻は、閉じたと数える行（deliver.closed_ids と同じ見分け。知らせられなかった納品と --for の返しは数えない）の時刻
     at = [r["at"] for r in rows if isinstance(r.get("at"), (int, float)) and deliver.closed_ids([r]) & ids]
     closed_at = stamp(max(at)) if at else None
-    # 渡せなかった頼みが、渡せた頼みのどれより新しいか。渡せなかったのは、このツールが回した頼み（題で見分けた物。生んだ頼みは数えない。
+    # 渡せなかった頼みが、渡せた頼みのどれより新しいか。渡せなかったのは、このツールが回した頼み（外れの行で見分けた物。生んだ頼みは数えない。
     # 直しを回した頼みの失敗や送り出しで、知らせた件の渡し損ねを決めない）の最後の行が failed（開いても閉じてもいない）か、このツールの
     # 外れの行（kind miss。works-dispatch の calls.call が回す前に書く）の ask に頼みの行が 1 つも無い物（回す先の部署が引けない・
     # orders.ask が行を書かずに落ちた）。ただし、同じ出力の外れが開いている頼みに渡っていれば、orders.ask が同じ中身の頼みに重ねた
