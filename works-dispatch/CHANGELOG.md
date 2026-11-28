@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.175.0] - 2026-11-28
+
 VM のディスク（/）が部署の作業場と一時の置き場で埋まらないようにする 4 つの直し（2026-11-28 に / の 145 GB が満杯になった。my_notes の受付 96620c）。
 
 ### Added
