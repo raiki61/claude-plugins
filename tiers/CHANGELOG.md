@@ -8,7 +8,7 @@ tiers（プラグインが要る外のツールが PC にそろっているか�
 
 ### Changed
 
-- 試験だけを直した（tiers の動きは変えていない）。点検の試験 `tests/test_tiers_check.py` の 2 本を、一時のフォルダに置いたコマンドを PATH に渡し、見つかった道の値が出力に届くかを見る形に替えた。statusline の試験 `tests/test_statusline.py` で、ほかの試験と同じ入力で同じ結論を見ていた 1 本を消した（頼み 263078）。
+- 試験だけを直した（tiers の動きは変えていない）。点検の試験 `tests/test_tiers_check.py` の 2 本を、試験のためだけに作った偽のコマンドを一時のフォルダに置いて PATH に渡し、見つかったコマンドのパスが出力に出るかを見る形に替えた。statusline の試験 `tests/test_statusline.py` の `Compose.test_the_statusline_tells_our_override_by_the_same_mark` を消した。同じ入力で同じ結論を `Shell.test_the_statusline_starts_refresh_only_when_it_would_change_something` が見る（頼みの受付番号 263078。受付番号は、works-dispatch の `--ask` で部署に頼んだ仕事に振られる番号で、頼みの台帳で引ける）。
 
 ## [0.14.2] - 2026-11-28
 
