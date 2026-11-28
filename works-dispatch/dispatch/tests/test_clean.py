@@ -24,14 +24,14 @@ SHA = "a" * 40
 
 
 class Candidates(unittest.TestCase):
-    def rows(self, places, prs, open_cwds=(), dirty=(), stashed=(), heads=None):
+    def rows(self, places, prs, open_cwds=(), dirty=(), stashed=(), heads=None, changed=()):
         def pr_for(branch):
             got = prs.get(branch)
             if got == "unknown":
                 raise clean.Unknown("x")
             return got
         return clean.candidates(places, pr_for, set(open_cwds), lambda p: p not in dirty,
-                                lambda p, b: p in stashed, lambda p: (heads or {}).get(p, SHA))
+                                lambda p, b: p in stashed, lambda p: (heads or {}).get(p, SHA), changed=lambda p: list(changed))
 
     def merged(self, n=1, state="MERGED"):
         return {"number": n, "state": state, "head_sha": SHA}
@@ -44,31 +44,45 @@ class Candidates(unittest.TestCase):
         rows = self.rows([place("/w/a", "a"), place("/w/b", "b")], {"a": self.merged(1), "b": self.merged(2, "CLOSED")})
         self.assertEqual([(r["number"], r["removable"]) for r in rows], [(1, True), (2, True)])
 
-    def test_branch_without_a_pr_is_kept(self):
-        # issue から始めて PR をまだ作っていないブランチは消さない
-        row = self.rows([place("/w/12-fix", "12-fix")], {})[0]
-        self.assertEqual((row["removable"], row["reason"]), (False, "no_pr"))
+    # 残す訳と、その訳を立てる手元の条件。並びは訳の強さの順（2 つ重なれば前の訳が出る）。PR の状態の 3 つは 1 つの PR の答えなので重ならない
+    KEEP = (("no_branch", {"branch": None}),                         # ブランチに乗っていない（detached）
+            ("pr_state_unknown", {"prs": {"a": "unknown"}}),         # PR の状態を GitHub から読めない
+            ("no_pr", {"prs": {}}),                                  # issue から始めて PR をまだ作っていない
+            ("pr_open", {"prs": {"a": "OPEN"}}),                     # PR が開いている
+            ("session", {"open_cwds": ["/w/a/backend"]}),            # 中のフォルダで会話が動いている
+            ("dirty", {"dirty": ["/w/a"]}),                          # 未コミットの変更
+            ("unpushed", {"stashed": ["/w/a"]}),                     # このブランチの stash
+            ("local_files", {"changed": [".env.local"]}))            # 写したファイルを手元で書き換えた
+    PR_ANSWERS = {"pr_state_unknown", "no_pr", "pr_open"}
 
-    def test_detached_checkout_is_kept(self):
-        self.assertEqual(self.rows([place("/w/x", None)], {})[0]["reason"], "no_branch")
+    def keep_row(self, *conds):
+        """条件を重ねた 1 か所の行。PR の答えは状態の字（MERGED・OPEN）か unknown（読めない）。"""
+        got = {"branch": "a", "prs": {"a": "MERGED"}, "open_cwds": (), "dirty": (), "stashed": (), "changed": []}
+        for c in conds:
+            got.update(c)
+        prs = {b: v if v == "unknown" else self.merged(state=v) for b, v in got["prs"].items()}
+        rows = self.rows([place("/w/a", got["branch"])], prs, open_cwds=got["open_cwds"], dirty=got["dirty"], stashed=got["stashed"],
+                         changed=got["changed"])
+        return rows[0]
 
-    def test_open_pr_is_kept(self):
-        row = self.rows([place("/w/a", "a")], {"a": self.merged(state="OPEN")})[0]
-        self.assertEqual((row["removable"], row["reason"]), (False, "pr_open"))
+    def test_each_reason_keeps_the_place_and_the_stronger_of_two_wins(self):
+        for reason, cond in self.KEEP:
+            with self.subTest(reason=reason):
+                row = self.keep_row(cond)
+                self.assertEqual((row["removable"], row["reason"]), (False, reason))
+        for i, (first, a) in enumerate(self.KEEP):
+            for second, b in self.KEEP[i + 1:]:
+                if {first, second} <= self.PR_ANSWERS:
+                    continue
+                with self.subTest(both=(first, second)):
+                    row = self.keep_row(a, b)
+                    self.assertEqual((row["removable"], row["reason"]), (False, first))
+        # 何も立てなければ消せる（表の条件のどれかが残す訳を立てていることの裏）
+        self.assertEqual((self.keep_row()["removable"], self.keep_row()["reason"]), (True, None))
 
-    def test_folder_with_a_conversation_is_kept(self):
-        row = self.rows([place("/w/a", "a")], {"a": self.merged()}, open_cwds=["/w/a/backend"])[0]
-        self.assertEqual((row["removable"], row["reason"]), (False, "session"))
-
-    def test_uncommitted_stashed_or_moved_work_is_kept(self):
-        pr = {"a": self.merged()}
-        self.assertEqual(self.rows([place("/w/a", "a")], pr, dirty=["/w/a"])[0]["reason"], "dirty")
-        self.assertEqual(self.rows([place("/w/a", "a")], pr, stashed=["/w/a"])[0]["reason"], "unpushed")
-        self.assertEqual(self.rows([place("/w/a", "a")], pr, heads={"/w/a": "b" * 40})[0]["reason"], "unpushed")
-
-    def test_unknown_pr_is_kept(self):
-        row = self.rows([place("/w/a", "a")], {"a": "unknown"})[0]
-        self.assertEqual((row["removable"], row["reason"]), (False, "pr_state_unknown"))
+    def test_a_branch_tip_moved_off_the_pr_head_is_unpushed_work(self):
+        row = self.rows([place("/w/a", "a")], {"a": self.merged()}, heads={"/w/a": "b" * 40})[0]
+        self.assertEqual((row["removable"], row["reason"]), (False, "unpushed"))
 
     def test_conversation_behind_a_symlink_still_keeps_the_place(self):
         real = pathlib.Path(scratch()).resolve()

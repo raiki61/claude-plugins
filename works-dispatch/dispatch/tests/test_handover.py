@@ -176,10 +176,13 @@ class Handover(unittest.TestCase):
         self.assertEqual(rc, 2, out)
         self.assertIn("前の部署", out)
         self.assertIn("待ち受けが動いている", out)
-        for argv, said in ((["--handover", "社長室"], "今の名前"), (["--handover", "無い"], "無い"), (["--handover", " "], "名前を渡す")):
+        # 名前の断り。今の名前と空の名前は打った字だけでは見分けられないので訳の句で見る。知らない名前は、探した会社と名前を名指し、名前を見る --tree を添える
+        for argv, said in ((["--handover", "社長室"], ("今の名前",)), (["--handover", "居ない名"], (self.company, "居ない名", "--tree")),
+                           (["--handover", " "], ("名前を渡す",))):
             rc, out = self.main(*argv)
             self.assertEqual(rc, 2, out)
-            self.assertIn(said, out)
+            for word in said:
+                self.assertIn(word, out)
         self.assertEqual(self.rows(handover.KIND), [])
 
     def test_stops_when_a_queued_ask_does_not_pass_the_successor_check(self):
@@ -442,7 +445,7 @@ class Handover(unittest.TestCase):
         self.ports.env = {"CLAUDE_CODE_SESSION_ID": "s-desk"}
         rc, out = self.main("--desk", "段取り")
         self.assertEqual(rc, 2, out)
-        self.assertIn("段取り", out)
+        self.assertIn(f"{self.company}/work/office", out)   # 継いだ名前を持つ場所（後継の部署のブランチ）を名指す
         self.assertEqual(self.g.worktree_attrs(self.src), {})
         rc, out = self.main("--desk", "受付")   # 継いでいない名前なら名乗れる（本社の名付いた窓口が先に当たる）
         self.assertEqual(rc, 0, out)
@@ -681,8 +684,12 @@ class Park(unittest.TestCase):
         self.assertEqual(state.get("c1"), "done")
 
     def test_park_needs_wait(self):
+        before = self.g.worktree_attrs(self.place)
         rc, out = self.main("--park")
         self.assertEqual(rc, 2, out)
+        self.assertIn("--wait", out)   # 足りない旗を名指す
+        self.assertEqual(self.g.worktree_attrs(self.place), before)   # 頼みを保留にしない
+        self.assertEqual(deliver.parked_of(before), [])
 
 
 if __name__ == "__main__":

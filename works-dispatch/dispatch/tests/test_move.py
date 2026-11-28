@@ -10,7 +10,7 @@ import time
 import unittest
 from unittest import mock
 
-from . import test_deliver
+from . import scratch, test_deliver
 import claudex
 import dispatch
 import limit_hook
@@ -98,7 +98,6 @@ class Move(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         (got,) = seen
         self.assertIn("受付 q1", got["brief"])
-        self.assertNotIn("受けている頼みは無い", got["brief"])
         self.assertEqual(got["extra"]["boss"], "段取り")
         self.assertIn("--deliver", got["tail"])
 
@@ -266,9 +265,11 @@ class Move(unittest.TestCase):
         self.assertTrue(self.held[0])
         self.assertIn("待つのをやめた", out)
         self.assertEqual([x["ns"].only_account for x in seen], ["a2"])
-        self.assertIn("使用上限に当たった", seen[0]["brief"])
+        for account in ("a1", "a2"):   # 前のアカウントと移った先を名指す（文の分かれは FirstText が見る）
+            self.assertIn(account, seen[0]["brief"])
         rows = [r for r in deliver.records(self.inbox) if r.get("kind") == "moved"]
         self.assertEqual([(r["status"], r["to"]) for r in rows], [(move.WAITING, None), ("done", "a2")])
+        self.assertEqual(rows[-1]["why"], move.LIMITED)
         self.assertNotIn(wake.LIMIT_HOLD, self.g.worktree_attrs(self.place))
 
     def test_if_limited_stops_waiting_when_the_wait_mark_changes(self):
@@ -537,7 +538,7 @@ class Move(unittest.TestCase):
         (got,) = seen
         self.assertEqual(got["ns"].only_account, "a1")   # 空きがあれば同じアカウントで
         self.assertIn(move.CHANGED, got["brief"])
-        self.assertIn("受けている頼みは無い", got["brief"])
+        self.assertNotIn("q1", got["brief"])   # 納品した頼み（delivered = ask）は渡さない
         self.assertIsNone(got["tail"])
         # 前の会話を止めたら待ち受けの印を外す。起動し直した会話は空なので、空にした印も書く
         self.assertNotIn(wake.RESTARTING, got["attrs"])
@@ -627,7 +628,8 @@ class Move(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         (got,) = seen
         self.assertEqual(got["ns"].only_account, "a2")
-        self.assertIn("使用上限か使える時間帯の終わりに当たる前の区切りで", got["brief"])
+        for account in ("a1", "a2"):
+            self.assertIn(account, got["brief"])
         (moved,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "moved"]
         self.assertEqual((moved["from"], moved["to"], moved["why"], moved["status"]), ("a1", "a2", move.EARLY, "done"))
         self.assertIn("5 時間の枠 92%", moved["detail"])
@@ -953,6 +955,44 @@ class Move(unittest.TestCase):
         self.assertEqual(row["status"], "noticed")
         self.assertIn("次のターンの終わり", row["detail"])
         self.assertNotIn(wake.LIMIT_HOLD, self.g.worktree_attrs(self.src))
+
+
+class FirstText(unittest.TestCase):
+    """起動し直した会話への最初の文（move._first_text）を、訳（why）× 受けている頼みの有無 × 窓口か の表で見る。文の言い回しは見ず、
+    差し込む値（アカウント・受付・本文のファイル・ブランチ・窓口の名前）と、訳ごとに文が分かれることを見る。"""
+
+    WHYS = (move.LIMITED, move.CLOSED, move.CHANGED, move.SAME, move.EARLY, None)   # None は名指しの --move（訳の無い移し）
+
+    def text(self, why, pending, head, inbox=""):
+        attrs = {"name": "窓口" if head else "調べ", "ask": "q7", "delivered": None if pending else "q7", "boss-inbox": inbox}
+        return move._first_text(attrs, {"branch": "work/q7"}, "a1", "a2", why, head)
+
+    def test_each_reason_and_the_ask_state_shape_the_first_text(self):
+        inbox = scratch()
+        pathlib.Path(inbox, "q7-ask.md").write_text("本文\n", encoding="utf-8")
+        for why in self.WHYS:
+            for pending in (True, False):
+                for head in (True, False):
+                    with self.subTest(why=why, pending=pending, head=head):
+                        got = self.text(why, pending, head, inbox)
+                        self.assertIn("a2", got)   # 起動し直した先は、どの訳でも名指す
+                        if why not in (move.CHANGED, move.SAME):
+                            self.assertIn("a1", got)   # 移したときは前のアカウントも名指す
+                        if why == move.CHANGED:
+                            self.assertIn(move.CHANGED, got)
+                        self.assertEqual("q7" in got, pending)   # 納品していない頼みだけを渡す
+                        self.assertEqual("work/q7" in got, pending)   # 続きの手がかりのブランチも、渡す頼みが在るときだけ
+                        self.assertEqual(os.path.join(inbox, "q7-ask.md") in got, pending)   # 本文のファイルが在れば、そのパスを指す
+                        self.assertEqual("--desk 窓口" in got, head)   # 窓口は、まず席を移すコマンドを打つ
+        # 訳ごとに文が分かれる（どの 2 つの訳も同じ文にならない）。CLOSED は --if-limited の時間帯の分かれ
+        for pending in (True, False):
+            texts = [self.text(why, pending, False) for why in self.WHYS]
+            self.assertEqual(len(set(texts)), len(self.WHYS), texts)
+        # 本文のファイルが無ければ、受付箱の中の名前で指す
+        empty = scratch()
+        got = self.text(move.LIMITED, True, False, empty)
+        self.assertIn("q7-ask.md", got)
+        self.assertNotIn(os.path.join(empty, "q7-ask.md"), got)
 
 
 class LimitHook(unittest.TestCase):

@@ -6,10 +6,11 @@ import io
 import json
 import os
 import pathlib
+import re
 import subprocess
 import unittest
 
-from . import DISPATCH  # noqa: F401
+from . import DISPATCH
 from . import fakegit
 from .test_provision import WorktreeHerdr, git, make_world
 import claudex
@@ -858,8 +859,10 @@ class Preflight(unittest.TestCase):
         for word in ("pane.rename", "pane.report_metadata", "--bg"):
             self.assertIn(word, text)
         self.assertNotIn("catchup", text)
-        self.assertNotIn("2 ターン目", text)
+        # 2 ターン目の文の空は、部署の回では問わず、ほかの回では repo を名指して止める（文の言い回しでなく、repo の頭の行の有無で見る）
+        self.assertFalse([p for p in problems if p.startswith("o/r: ")], problems)
         problems, notes = ports.preflight(cfg)
+        self.assertEqual(len([p for p in problems if p.startswith("o/r: ")]), 1, problems)
         self.assertNotIn("--bg", "\n".join(problems))
         self.assertIn("--bg", "\n".join(notes))
         self.assertIn("pane.rename", "\n".join(notes))
@@ -892,12 +895,18 @@ class Preflight(unittest.TestCase):
         self.assertFalse(wiring.spaces_show_kind(home / "missing.toml"))
 
     def test_account_without_usage_window_gets_no_missing_limits_note(self):
+        # 同じ設定・同じ口で、使用率の枠を持つ回と持たない回を比べる。枠を持たない回は、持つ回の注記から a1 の使用率の注記
+        # （控えが無い・古い）だけが抜けた物になる。注記の言い回しに依らず、無い側の照合が常に緑にならない
         cfg_path, root = make_cfg()
         cfg = config.load(cfg_path, env={})
-        cfg = cfg._replace(accounts=tuple(a._replace(limits=False) for a in cfg.accounts))
         ports = quiet_ports(herdr_methods=lambda: {"pane.list"}, shell_has=lambda cmd: False, gh_ok=lambda repo, env=None: True)
-        problems, notes = ports.preflight(cfg)
-        self.assertNotIn("使用率の控え", "\n".join(notes))
+        _, with_window = ports.preflight(cfg)
+        cfg = cfg._replace(accounts=tuple(a._replace(limits=False) for a in cfg.accounts))
+        _, without = ports.preflight(cfg)
+        dropped = [n for n in with_window if n not in without]
+        self.assertTrue(dropped, with_window)
+        self.assertTrue(all("アカウント a1 " in n for n in dropped), dropped)
+        self.assertEqual([n for n in with_window if n in without], without)
 
     def test_missing_herdr_integration_is_a_note_with_the_install_command(self):
         # Claude Code の作業中の判定は herdr が画面から読むので、連携のフックが無くても動く。フックは会話の識別子を herdr に渡し、
@@ -1074,7 +1083,11 @@ class Init(unittest.TestCase):
         self.assertIn("--check", out)
         text = pathlib.Path(self.cfg).read_text(encoding="utf-8")
         self.assertIn("skills/dispatch/references/setup.md", text.splitlines()[1])   # フィールドの書き方はスキルの別ファイルに在る（README でない）
-        self.assertIn("CLAUDE_CONFIG_DIR をシェルの環境でだけ入れて", text)
+        # 下書きの頭が指す文書（プラグインのフォルダからのパス）は、どれも在る（消す・移すと下書きが古い場所を指す）
+        pointed = re.findall(r"[\w./-]+\.md", text.splitlines()[1])
+        self.assertTrue(pointed)
+        for rel in pointed:
+            self.assertTrue((DISPATCH.parent / rel).is_file(), rel)
 
     def test_repo_that_is_not_the_origin_of_the_source_stops_before_writing(self):
         rc, out = run_main(["--config", self.cfg, "--init", "--repo", "o/other", "--source", self.src], FakePorts([]))

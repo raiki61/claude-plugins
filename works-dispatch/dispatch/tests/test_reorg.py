@@ -56,9 +56,8 @@ class Reorg(unittest.TestCase):
             ("report_workspace_metadata", self.ws(self.pane), {"kind": "always · carry", "seat": "always.carry"}, []),
             ("rename_pane", self.pane, "割り振り"),
             ("report_pane_metadata", self.pane, "担当", "割り振り", {"role": "担当", "account": "a1", "boss": "窓口"}, [])])
-        self.assertIn("company.name: 振り分け → 割り振り", out)
-        self.assertIn("前の名前 振り分け でも --land・--ask で引ける", out)
-        self.assertIn("/rename 割り振り", out)
+        self.assertIn("company.name: 振り分け → 割り振り", out)   # 書き替えた属性の行（前の値 → 今の値）
+        self.assertIn("/rename 割り振り", out)   # 会話の中で打つコマンド（会話の名前は外から替えられない）
         # もう一度替えると前の名前が積まれ、戻した名前は前の名前から外れる
         rc, out = self.main("--reorg", "--name", "振り分け")
         self.assertEqual(rc, 0, out)
@@ -172,7 +171,7 @@ class Reorg(unittest.TestCase):
         rc, out = self.main("--desk")
         self.assertEqual(rc, 0, out)
         self.assertEqual(self.g.worktree_attrs(self.src)["gh-user"], "company-user")
-        self.assertIn("gh のアカウント company-user は、この本社で次に始めた会話から効く", out)
+        self.assertIn("company.gh-user: - → company-user", out)
         with open(self.cfg, "a", encoding="utf-8") as f:
             f.write('gh_user = "me-at-work"\n')
         rc, out = self.main("--desk")
@@ -261,13 +260,16 @@ class Reorg(unittest.TestCase):
         self.ports.running_chat = lambda pid: pid == "777"
         rc, out = self.main("--desk")
         self.assertEqual(rc, 2, out)
-        self.assertIn("窓口 窓口 の会話（処理 777、会話 s-old）がまだ動いている", out)
+        for given in ("777", "s-old"):   # 席に居る会話の処理の番号と会話の id を名指す
+            self.assertIn(given, out)
         self.assertEqual(self.g.worktree_attrs(self.src)["session"], "s-old")
+        self.assertNotIn("ttys", out)
         self.ports.paused_chat = lambda pid: "ttys023" if pid == "777" else None   # 一時停止の会話は /exit を受けない（受付 d46e09）
         rc, out = self.main("--desk")
         self.assertEqual(rc, 2, out)
-        self.assertIn("窓口 窓口 の会話（処理 777、会話 s-old）が一時停止のまま残っている", out)
-        self.assertIn("端末 ttys023 で fg を打って会話を戻し、/exit で終えてから --desk を打ち直す", out)
+        for given in ("777", "s-old", "ttys023", "kill -CONT 777"):   # 止まった会話の端末と、戻せないときに打つコマンド
+            self.assertIn(given, out)
+        self.assertEqual(self.g.worktree_attrs(self.src)["session"], "s-old")
         self.ports.running_chat = lambda pid: False   # 前の窓口を終えた（アカウントを移すときなど）
         rc, out = self.main("--desk")
         self.assertEqual(rc, 0, out)
@@ -342,25 +344,27 @@ class AutoDesk(unittest.TestCase):
         self.assertEqual({k: attrs.get(k) for k in ("role", "name", "lifecycle", "account", "session", "pid")},
                          {"role": "相談", "name": "相談", "lifecycle": "persistent", "account": "a1", "session": "s-desk",
                           "pid": "4242"})
-        self.assertIn("本社のこの会話を窓口 相談（役 相談。会社の形の desk_role）に名付けた", out)
+        self.assertTrue([line for line in out.splitlines() if "相談" in line and "desk_role" in line], out)   # 名付けた窓口と、その元の会社の形の鍵
         self.assertEqual(self.asked_from(), ["相談"])   # 頼み元は会話の一覧の名前 my-notes-31 でなく窓口の名前
         rc, out = self.ask()   # 名付いた後は place_name が名前を返し、名付け直さない
         self.assertEqual(rc, 0, out)
-        self.assertNotIn("名付け", out)
+        seat = ("role", "name", "lifecycle", "account", "session", "pid", "former-names")
+        self.assertEqual({k: self.g.worktree_attrs(self.src).get(k) for k in seat}, {k: attrs.get(k) for k in seat})
+        self.assertNotIn("desk_role", out)
 
     def test_asks_made_under_the_list_name_before_naming_still_reach_the_desk(self):
         self.shape.write_text('[[roles]]\nname = "相談"\n[[roles]]\nname = "担当"\n', encoding="utf-8")   # desk_role の無い会社
         rc, out = self.ask()
         self.assertEqual(rc, 0, out)
         self.assertNotIn("role", self.g.worktree_attrs(self.src))   # 名付けない（今までどおり）
-        self.assertNotIn("名付け", out)
+        self.assertNotIn("desk_role", out)
         self.assertEqual(self.asked_from(), ["my-notes-31"])
         self.shape.write_text('desk_role = "相談"\n[[roles]]\nname = "相談"\n[[roles]]\nname = "担当"\n', encoding="utf-8")
         rc, out = self.ask()
         self.assertEqual(rc, 0, out)
         attrs = self.g.worktree_attrs(self.src)
         self.assertEqual((attrs["name"], gitx.former_names(attrs)), ("相談", ["my-notes-31"]))
-        self.assertIn("前に会話の一覧の名前 my-notes-31 で頼んだ物の納品もこの窓口に届く", out)
+        self.assertIn("my-notes-31", out)   # 前に頼んだときの名前を名指す（その納品も窓口に届く: former-names）
 
     def test_desk_by_hand_also_keeps_the_list_name_of_earlier_asks(self):
         self.shape.write_text('[[roles]]\nname = "相談"\n[[roles]]\nname = "担当"\n', encoding="utf-8")

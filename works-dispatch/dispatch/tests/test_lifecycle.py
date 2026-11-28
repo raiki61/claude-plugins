@@ -997,6 +997,12 @@ class Flow(unittest.TestCase):
                 if case == "refresh":
                     self.assertIn("#3: 部署「部署の作業」の作業場のブランチなので開かない（レビューの返しは --ask '部署の作業' --text <頼み> で部署へ回す）", out)
 
+    def dept_line(self, out, n=3, name="部署の作業"):
+        """出力のうち、部署 name の PR #n を開かない訳の行（1 行だけ在る）。"""
+        got = [x for x in out.splitlines() if f"#{n}: 部署「{name}」" in x]
+        self.assertEqual(len(got), 1, out)
+        return got[0]
+
     def owed_department(self):
         """返していない人のスレッドが 2 本残る部署の PR（#3）の形。(場所, ports)"""
         path = self.place(3)
@@ -1037,8 +1043,9 @@ class Flow(unittest.TestCase):
         with mock.patch.object(dispatch.orders, "ask", side_effect=ask):
             rc, out = run_main(self.cfg, ports)
             self.assertEqual(rc, 0, out)
-            self.assertEqual([(ns.ask, ns.dry_run, ns.text) for ns in asked],
-                             [("部署の作業", False, dispatch._review_text({**pr(3), "owed_threads": 2}))])
+            self.assertEqual([(ns.ask, ns.dry_run) for ns in asked], [("部署の作業", False)])
+            # 頼みの文は 1 行で、PR の番号・URL・返していないスレッドの本数（外から渡した値）が届く
+            self.assertNotIn("\n", asked[0].text)
             self.assertIn("PR #3（u3）に、返事を待たれている人のレビューのスレッドが 2 本ある", asked[0].text)
             self.assertIn(f"→ 部署に頼んだ（受付 {asked[0].ask_id}）", out)
             rec = json.loads((limits / wiring.SENT_FILE).read_text())["o/r#3/department"]
@@ -1073,21 +1080,32 @@ class Flow(unittest.TestCase):
         ports.acts = {3: {"reviewers": True, "last_other": 500.0}}
         self.department(path)
         rc, out = run_main(self.cfg, ports)
-        self.assertNotIn("会話は居ない", out)
+        self.assertEqual(rc, 0, out)
+        talking = self.dept_line(out)   # 窓に会話が居る形の行（添える言葉が無い）
+        self.assertNotIn("--nudge", talking)
         ports.term.talking.discard(pane["pane_id"])
         for p in ports.term._panes:
             if p["pane_id"] == pane["pane_id"]:
                 p["agent"] = None
+        # 会話が居なければ、同じ行の括弧の中に言葉を添える。受けた頼みを納品し終えていれば、戻す手（--nudge）は出さない
         rc, out = run_main(self.cfg, ports)
         self.assertEqual(rc, 0, out)
-        self.assertIn("#3: 部署「部署の作業」の作業場のブランチなので開かない（レビューの返しは --ask '部署の作業' --text <頼み> で部署へ回す。"
-                      "部署の窓に会話は居ないが、受けた頼みは納品済みなので attach で戻さなくてよい（次の --ask が戻してから頼む））", out)
+        away = self.dept_line(out)
+        self.assertTrue(away.startswith(talking[:-1]) and away != talking, (talking, away))
+        self.assertNotIn("--nudge", away)
         self.g.set_worktree_attr(path, "ask", "q9")   # 納品していない頼みを持つなら、--nudge で戻す手を出す（--ask は戻しても新しい頼みを送らない）
         rc, out = run_main(self.cfg, ports)
-        self.assertIn("部署へ回す。部署の窓に会話が居ない。受付 q9 を納品していないので、--nudge '部署の作業' で戻して納品を促す）", out)
+        held = self.dept_line(out)
+        self.assertTrue(held.startswith(talking[:-1]) and held not in (talking, away), (talking, away, held))
+        self.assertIn("q9", held)
+        self.assertIn("--nudge '部署の作業'", held)
         self.assertEqual(ports.term.writes, [], out)
+        # herdr が窓を答えなければ、言葉を添えないだけで、ほかは今までどおり（行は会話が居る形と同じ）
         with mock.patch.object(ports.term, "panes", side_effect=dispatch.term.Error(["herdr"], "答えない")):
-            self.assertEqual(dispatch._talk_away_places(ports, [{"path": path, "branch": "b", "workspace": "w"}], {}), {})
+            rc, out = run_main(self.cfg, ports)
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.dept_line(out), talking)
+        self.assertEqual(ports.term.writes, [], out)
 
     def switched_department(self, owed=0):
         """部署が作業場 feat-3 で #3（feat/3）を出した後、同じ作業場で feat/9 に替えた形（頼み 759276）。(場所, ports)"""
@@ -1115,7 +1133,9 @@ class Flow(unittest.TestCase):
         self.g.add_worktree(str(pathlib.Path(self.root, "mine-3")), "feat/3")
         rc, out = run_main(self.cfg, ports, "--dry-run")
         self.assertEqual(rc, 0, out)
-        self.assertNotIn("前に作業場で開いていたブランチ", out)
+        self.assertTrue(line(out, 3).endswith("reuse"), out)   # その場所を使い直す見込みの行になり、新しい worktree は作らない
+        self.assertNotIn("部署「部署の作業」", out)   # 部署の物として名指さない
+        self.assertEqual(ports.term.writes, [], out)
 
     def test_threads_i_owe_on_a_left_branch_are_asked_of_the_department(self):
         path, ports = self.switched_department(owed=2)

@@ -229,7 +229,7 @@ class Info(unittest.TestCase):
                          ["until-idle", "per-ask", "always", "per-ask", "always", "per-ask", "always"])
         # 外した値 on-demand（2026-11-01 に until-idle に名前を替えた）は読まず、今の値を添えて注記に出す。役の値で扱う
         self.assertEqual(got["problems"], [
-            f"{got['path']}: skills[4]（e）: lifetime は per-ask・until-idle・always のどれか。外す",
+            f"{got['path']}: skills[4]（e）: lifetime は {'・'.join(role.LIFETIMES)} のどれか。外す",
             f"{got['path']}: skills[5]（f）の rent_or_buy は true か false。外して、役の値で扱う",
             f"{got['path']}: skills[6]（g）: 外した値 lifetime = \"on-demand\" は読まない（until-idle に名前を替えた。lifetime = \"until-idle\" と書く）"])
 
@@ -251,7 +251,8 @@ class Info(unittest.TestCase):
         self.assertEqual([(s["name"], s["model"], s["effort"]) for s in got["skills"]], [("割り振り", "sonnet", "low"), ("点検", None, None)])
         self.assertEqual(len(got["problems"]), 2)
         self.assertIn("inherit は作っていない", got["problems"][0])
-        self.assertIn("effort は low・medium・high・xhigh・max・ultracode・inherit のどれか。外して、役の effort で起動する", got["problems"][1])
+        # 書ける値の並びは role の 1 か所の定義（EFFORTS と inherit）から引く。値を足しても読みの振る舞いの照合は替わらない
+        self.assertIn(f"effort は {'・'.join(role.EFFORTS + (role.INHERIT,))} のどれか。外して、役の effort で起動する", got["problems"][1])
 
     def test_duty_settings_are_read_and_a_non_table_is_dropped(self):
         write(os.path.join(self.root, ".claude", "company.toml"),
@@ -272,9 +273,12 @@ class Info(unittest.TestCase):
         self.assertIn("TOML として読めない", got["problems"][0])
 
     def test_wrong_shapes_are_named(self):
+        # どちらの形の誤りも、どこが違うか（name の型と、name の無い skills の何番目か）を名指す。片方の検査が壊れて別の注記に替われば赤
         write(os.path.join(self.root, ".claude", "company.toml"), 'name = 3\nskills = [{ id = "x" }]\n')
         got = tree.read_info(self.root, None)
-        self.assertEqual(len(got["problems"]), 2)
+        self.assertEqual(got["problems"], [f"{got['path']}: name が文字列で無い", f"{got['path']}: skills[0] に name が無い"])
+        self.assertIsNone(got["name"])
+        self.assertEqual(got["skills"], [])
 
 
 def publish(src, text):
@@ -910,14 +914,15 @@ class Departments(unittest.TestCase):
         self.g.commit(self.dept("dept/b", "s-b"), {}, "x")
         self.state["s-b"] = "done"
         rc, out = self.clean("--apply")
-        self.assertIn("部署 dept/a dept/a  working  残す（会話がまだ動いている）", out)
-        self.assertIn("部署 dept/b dept/b  done  残す（手元にしか無い commit か stash が有る）", out)
+        # 残す訳は dispatch.DEPT_REASONS の 1 か所の定義から引く（訳の文を直しても、どの部署をどの訳で残したかの照合は替わらない）
+        self.assertIn(f"部署 dept/a dept/a  working  残す（{dispatch.DEPT_REASONS['running']}）", out)
+        self.assertIn(f"部署 dept/b dept/b  done  残す（{dispatch.DEPT_REASONS['unpushed']}）", out)
         self.assertEqual(self.removed, [])
 
     def test_resident_department_is_never_removed(self):
         provision.mark(self.place, self.src, {"lifecycle": "persistent"}, self.g)
         rc, out = self.clean("--apply")
-        self.assertIn("部署 dept/a dept/a  done  残す（always の部署は畳まない）", out)
+        self.assertIn(f"部署 dept/a dept/a  done  残す（{dispatch.DEPT_REASONS['persistent']}）", out)
         self.assertEqual(self.removed, [])
         self.assertTrue(os.path.exists(self.place))
 
