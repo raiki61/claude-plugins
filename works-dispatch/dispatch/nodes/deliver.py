@@ -989,7 +989,7 @@ OUTSIDE_WAIT = (
     "If you are waiting for an outside state (a PR's checks, the merge queue, another PR's merge), nothing wakes you unless you "
     "place a waiter before you end the turn: run a command that ends when the state changes with run_in_background, e.g. "
     "`gh pr checks <N> --watch` for checks, or a bounded loop for a state with no waiting command, e.g. "
-    "`for i in $(seq 1 120); do s=$(gh pr view <N> --json state -q .state); [ \"$s\" != OPEN ] && break; sleep 60; done; echo $s` "
+    "`for i in $(seq 1 120); do s=$(gh pr view <N> --json state -q .state); [ -n \"$s\" ] && [ \"$s\" != OPEN ] && break; sleep 60; done; echo $s` "
     "(the waitgate hook blocks while/until loops that sleep, not a for loop with a fixed count; if the loop runs out, check and "
     "place it again). Do not deliver only to hand the waiting over to the asker."
 )
