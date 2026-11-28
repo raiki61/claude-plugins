@@ -83,7 +83,7 @@ class TaskRoom(unittest.TestCase):
         rc, out = self.run_task(ports)
         self.assertEqual(rc, 1, out)
         self.assertIn("止めた: ディスクの空きが足りない", out)
-        self.assertNotIn("create_worktree", [w[0] for w in ports.term.writes])
+        self.assertNotIn("task/fix", self.g.heads.values())   # 作業場を作っていない
 
     def test_dry_run_tells_the_free_and_needed_room(self):
         ports = FakePorts([], git=self.g)
@@ -142,6 +142,8 @@ class AgentPlaces(unittest.TestCase):
         calls = []
 
         class G:
+            git_dir = common_dir = staticmethod(lambda path: None)   # 盤面の無い作業場
+
             @staticmethod
             def remove_worktree(source, path):
                 calls.append(("remove", source, path))
@@ -161,6 +163,8 @@ class AgentPlaces(unittest.TestCase):
         os.makedirs(row["path"])
 
         class G:
+            git_dir = common_dir = staticmethod(lambda path: None)   # 盤面の無い作業場
+
             @staticmethod
             def remove_worktree(source, path):
                 raise gitx.GitError("contains modified or untracked files")
@@ -172,6 +176,30 @@ class AgentPlaces(unittest.TestCase):
         out = clean.remove_agent(row, self.source, G)
         self.assertFalse(out["removed"])
         self.assertIn("modified or untracked", out["detail"])
+
+
+class AgentBoards(unittest.TestCase):
+    def test_boards_that_cannot_be_copied_keep_the_worktree(self):
+        source = scratch()
+        row = {"path": os.path.join(source, ".claude", "worktrees", "agent-a"), "branch": "worktree-agent-a", "head": "a" * 40}
+        os.makedirs(row["path"])
+        here = os.path.join(scratch(), "worktrees", "agent-a")
+        os.makedirs(os.path.join(here, clean.BOARDS))
+
+        class G:
+            git_dir = staticmethod(lambda path: here)
+            common_dir = staticmethod(lambda path: os.path.join(source, "no-such", "common"))
+
+            @staticmethod
+            def remove_worktree(source, path):
+                raise AssertionError("盤面を写せなければ消さない")
+
+        orig = clean._copy_over
+        clean._copy_over = lambda *a, **k: (_ for _ in ()).throw(OSError("disk full"))
+        self.addCleanup(setattr, clean, "_copy_over", orig)
+        out = clean.remove_agent(row, source, G)
+        self.assertFalse(out["removed"])
+        self.assertIn("graphloops の盤面を写せない", out["detail"])
 
 
 class KeptTmpSkips(unittest.TestCase):
@@ -203,7 +231,7 @@ class KeptTmpSkips(unittest.TestCase):
         listed = pathlib.Path(dest, clean.SKIPPED).read_text(encoding="utf-8")
         self.assertIn(f"work{os.sep}.venv/\t-", listed)
         self.assertIn(f"big.bin\t{clean.KEPT_FILE_LIMIT + 1}", listed)
-        self.assertNotIn(clean.TMPDIR_NAME, listed)
+        self.assertIn(f"{clean.TMPDIR_NAME}/\t-", listed)
 
     def test_only_tmpdir_means_nothing_to_copy(self):
         (self.tmp / clean.TMPDIR_NAME).mkdir()

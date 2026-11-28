@@ -46,9 +46,11 @@ def code_cli(home=None, which=shutil.which):
 
 def sockets(env):
     """窓の socket を新しい順に。TMPDIR（無ければ OS の一時の置き場）と XDG_RUNTIME_DIR を探し、環境の VSCODE_IPC_HOOK_CLI も足す。
-    POSIX では /tmp も探す（部署の会話の Bash は TMPDIR が会話の置き場に向く〔role_hook.put_tmpdir〕が、VS Code は socket を /tmp に置く）。"""
+    裏の会話（CLAUDE_JOB_DIR の有る会話）では POSIX の /tmp も探す（部署の会話の Bash は TMPDIR が会話の置き場に向く
+    〔role_hook.put_tmpdir〕が、VS Code は socket を /tmp に置く）。"""
     found = set()
-    for d in (env.get("TMPDIR") or tempfile.gettempdir(), env.get("XDG_RUNTIME_DIR") or "", "/tmp" if os.name != "nt" else ""):
+    also = "/tmp" if os.name != "nt" and env.get("CLAUDE_JOB_DIR") else ""
+    for d in (env.get("TMPDIR") or tempfile.gettempdir(), env.get("XDG_RUNTIME_DIR") or "", also):
         if d:
             found.update(glob.glob(os.path.join(d, "vscode-ipc-*.sock")))
     hook = env.get("VSCODE_IPC_HOOK_CLI")

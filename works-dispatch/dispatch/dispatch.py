@@ -1704,6 +1704,8 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
     if short and not a.dry_run:
         print("\n".join(notes + [f"止めた: {short}"]))
         return 1
+    if not existed and room["free"] is None and not a.dry_run:
+        notes.append("ディスクの空きを読めないので、確かめずに作業場を作る")
     if a.dry_run:
         print("\n".join(notes + [
             f"部署 {a.task}  {a.branch}  {account}  {provision.would(row, found)}",
@@ -2555,15 +2557,18 @@ def _boards_note(path, ports):
 
 def _prune_kept(repo, ports):
     """--clean --apply のたびに、会話の一時の置き場の写し（共通の .git の company/kept-tmp）の古い物と上限を超えた分を消す（clean.prune_kept。
-    前の版は写すときにしか消さず、部署を畳まない間は期限を過ぎた写しが残った）。消した数を 1 行出す（0 なら出さない）。"""
+    前の版は写すときにしか消さず、部署を畳まない間は期限を過ぎた写しが残った）。消した数を 1 行出す（0 なら出さない）。
+    1 日より新しい写しは上限の超えでは消さない（同じ回に畳んだ部署の写しは、claude rm の後に残るただ 1 つの写しなので）。"""
     common = ports.git.common_dir(repo.source)
     if not common:
         return
     kept = os.path.join(common, *clean.KEPT_TMP)
-    gone = clean.prune_kept(kept, ports.now())
+    now = ports.now()
+    fresh = tuple(p for t, p in clean.kept_entries(kept) if now - t < 86400)
+    gone = clean.prune_kept(kept, now, keep=fresh)
     if gone:
         print(f"一時の置き場の写し {kept} の古い物か上限（{clean.KEPT_LIMIT // (1024 * 1024)} MiB）を超えた分を {gone} つ消した"
-              f"（{clean.KEPT_DAYS} 日より古い物と、合計が上限を超えた分の古い物）")
+              f"（{clean.KEPT_DAYS} 日より古い物と、合計が上限を超えた分の 1 日より古い物）")
 
 
 def _clean(cfg, repo, apply, ports):

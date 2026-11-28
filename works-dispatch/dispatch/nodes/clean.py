@@ -203,10 +203,11 @@ def agent_rows(entries, source, open_cwds, is_clean, stashed, in_main, touched, 
 
 
 def touched_at(path, g=gitx):
-    """場所 path と、その git の置き場の HEAD・index・HEAD の reflog の更新の時刻のいちばん新しい物（unix 秒）。どれも読めなければ None。"""
+    """場所 path と、その git の置き場の HEAD・HEAD の reflog の更新の時刻のいちばん新しい物（unix 秒）。どれも読めなければ None。
+    index は見ない（--clean の下見の git status が index を書き直して時刻を今にし、続く --apply で「触って間もない」になるので）。"""
     here = g.git_dir(path)
     got = []
-    for p in [path] + ([os.path.join(here, n) for n in ("HEAD", "index", os.path.join("logs", "HEAD"))] if here else []):
+    for p in [path] + ([os.path.join(here, n) for n in ("HEAD", os.path.join("logs", "HEAD"))] if here else []):
         try:
             got.append(os.stat(p).st_mtime)
         except OSError:
@@ -216,8 +217,14 @@ def touched_at(path, g=gitx):
 
 def remove_agent(row, source, g=gitx):
     """サブエージェントの作業場の 1 行を消す: git worktree remove（--force を付けない。消すまでの間に変更か鍵が付いたら git が断る）で
-    消し、手元のブランチも消す（先頭が行の head と同じときだけ）。{path, removed, branch_deleted, detail}。書く口。"""
+    消し、手元のブランチも消す（先頭が行の head と同じときだけ）。消す前に graphloops の盤面を写す（keep_boards。写せなければ消さない。
+    git worktree remove は git の置き場ごと盤面を消す）。{path, removed, branch_deleted, detail}。書く口。"""
     out = {"path": row["path"], "removed": False, "branch_deleted": False, "detail": None}
+    try:
+        keep_boards(row["path"], g)
+    except OSError as e:
+        out["detail"] = f"graphloops の盤面を写せないので消さない（{e}）"
+        return out
     try:
         g.remove_worktree(source, row["path"])
     except gitx.GitError as e:
@@ -338,7 +345,8 @@ def _skip_in_tmp(tmp):
         rel = os.path.relpath(path, tmp)
         if is_dir:
             if rel == TMPDIR_NAME:
-                return True   # 会話の Bash の TMPDIR。使い捨ての決まりの置き場なので、写したとも数えない
+                skipped.append((rel + "/", None))   # 会話の Bash の TMPDIR。使い捨ての決まりの置き場なので写さないが、並びには出す
+                return True
             if os.path.basename(path) in REBUILT_DIRS:
                 skipped.append((rel + "/", None))
                 return True
@@ -370,7 +378,7 @@ def keep_tmp(tmp, source, session, g=gitx):
     _copy_over(tmp, dest, skip)
     if skipped:
         pathlib.Path(dest, SKIPPED).write_text(
-            "写さなかった物（作り直せる依存のフォルダと、" f"{KEPT_FILE_LIMIT // (1024 * 1024)} MiB より大きいファイル）:\n"
+            "写さなかった物（会話の Bash の TMPDIR と、作り直せる依存のフォルダと、" f"{KEPT_FILE_LIMIT // (1024 * 1024)} MiB より大きいファイル）:\n"
             + "".join(f"{rel}\t{'-' if size is None else size}\n" for rel, size in skipped), encoding="utf-8")
     prune_kept(os.path.dirname(dest), time.time(), keep=(dest,))
     return n, dest
