@@ -54,7 +54,9 @@ class AccountToken(unittest.TestCase):
 
     def test_claude_codes_own_item_holds_json(self):
         login = json.dumps({"claudeAiOauth": {"accessToken": TOK, "refreshToken": "r"}})
-        own = claude_auth.claude_code_items("/h/.claude-w")[0]
+        # 名は Claude Code の決め方（CLAUDE_CONFIG_DIR の値の sha256 の頭 8 桁を足す）で外から書く。claude_code_items で
+        # 求めると、名の決め方を誤っても試験が同じ誤りを写して緑になる（頼み 900eef の点検）
+        own = "Claude Code-credentials-ba563974"   # sha256("/h/.claude-w") の頭 8 桁
         run = keychain({own: login})
         tok, note = claude_auth.account_token("/h/.claude-w", {}, None, "darwin", run)
         self.assertEqual((tok, note), (TOK, f"keychain({own})"))
