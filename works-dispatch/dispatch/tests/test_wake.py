@@ -3945,7 +3945,7 @@ class WakeFlow(unittest.TestCase):
 
     def test_forward_closes_the_held_ask_without_waking_its_asker_and_links_it_in_the_ledger(self):
         # 窓口が受けた頼みを部署へ回しただけなら、頼み元（社長室）の会話を再開させない。回した先は台帳にだけ結ぶ
-        with self.subTest('回すと元の頼みを閉じ、頼み元を起こさずに台帳で結ぶ'):
+        with self.subTest('回すと元の頼みを閉じ、頼み元の会話を動かさずに台帳で結ぶ'):
             rc, out = self.main(self.src, "--ask", "調べ", "--text", "回す頼み", "--forward")
             self.assertEqual(rc, 2, out)
             self.assertIn("--forward", out)

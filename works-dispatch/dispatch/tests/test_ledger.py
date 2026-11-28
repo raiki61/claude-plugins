@@ -406,7 +406,7 @@ class Todo(unittest.TestCase):
 
     def test_the_rows_of_this_setup_and_the_notices_the_code_builds_fit_the_row_schema(self):
         # setUp の行は試験が組んだ物で、ほかの試験の入力が本物の台帳と同じ形であることを守る。知らせの行（順番待ち・足し・知らせ）は
-        # コードの wake.notice が組み、deliver.log が書いた物を読み戻して照らす（--ask・--deliver が書く行は test_deliver の流れが見る）
+        # コードの wake.notice が組み、deliver.log が書いた物を読み戻して照合する（--ask・--deliver が書く行は test_deliver の流れが見る）
         for kind, text in ((wake.QUEUED, None), (wake.NOTE, "足し"), (wake.SAY, "知らせ")):
             deliver.log(str(self.theirs), wake.notice("theirs/調べ", C, kind, str(self.queued_c), text, 7))
         for inbox in (self.mine, self.theirs):

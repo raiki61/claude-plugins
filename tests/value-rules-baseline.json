@@ -288,14 +288,11 @@
  "works-dispatch/dispatch/terms.py": {
   "rule3": 1
  },
- "works-dispatch/dispatch/tests/test_accounts.py": {
-  "rule3": 1
- },
  "works-dispatch/dispatch/tests/test_deliver.py": {
   "rule3": 2
  },
  "works-dispatch/dispatch/tests/test_dispatch.py": {
-  "rule3": 2
+  "rule3": 3
  },
  "works-dispatch/dispatch/tests/test_health.py": {
   "rule3": 2
@@ -307,13 +304,16 @@
   "rule3": 1
  },
  "works-dispatch/dispatch/tests/test_move.py": {
-  "rule3": 2
+  "rule3": 3
+ },
+ "works-dispatch/dispatch/tests/test_reorg.py": {
+  "rule3": 1
  },
  "works-dispatch/dispatch/tests/test_role.py": {
   "rule3": 1
  },
  "works-dispatch/dispatch/tests/test_wake.py": {
-  "rule3": 4
+  "rule3": 2
  },
  "works-dispatch/dispatch/vendor/whose-turn.py": {
   "rule3": 1
