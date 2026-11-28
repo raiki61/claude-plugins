@@ -36,6 +36,7 @@ import io
 import json
 import os
 import pathlib
+import re
 import sys
 import tempfile
 
@@ -465,9 +466,17 @@ def fixed_by_commit():
 
 
 def title():
+    # 題の形を定めるのは works-dispatch の calls.hand_over の 1 か所だけ。そこから形を引いて役と name を入れ、出来た題を
+    # このツールの mine に通す（字の一致でなく、works-dispatch の付ける題の頼みを見分けるかで見る）。TITLE もこの題と合わせる
     src = (ROOT / "works-dispatch" / "dispatch" / "calls.py").read_text(encoding="utf-8")
-    check("\"title\": f\"ツール {role_name}/{tool['name']} が片づけられなかった仕事\"" in src,
-          "works-dispatch の calls.hand_over が頼みに付ける題の形が変わった。tests/ci-watch.py の mine の見分けと TITLE を合わせる")
+    forms = re.findall(r'"title": f"([^"]*)"', src)
+    check(len(forms) == 1, f"calls.py に頼みの題の形が 1 か所に見つからない: {forms}")
+    made = forms[0].replace("{role_name}", "CI の見張り").replace("{tool['name']}", cw.TOOL)
+    check("{" not in made, f"題の形に知らない差し込みが在る: {forms[0]}")
+    check(made == TITLE, f"試験の TITLE が works-dispatch の付ける題と違う: {made!r} {TITLE!r}")
+    d = setup([{"kind": "ask", "status": "queued", "id": "20261026-000000-cccccc", "title": made, "at": 5.0}])
+    inbox = os.path.join(d, *cw.deliver.INBOX)
+    check([r["id"] for r in cw.mine(inbox, lambda place: None)[0]] == ["20261026-000000-cccccc"], "works-dispatch の付ける題の頼みを、tests/ci-watch.py の mine がこのツールの頼みと見分けない")
     print("TITLE_OK")
 
 

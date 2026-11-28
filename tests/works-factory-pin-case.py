@@ -376,9 +376,20 @@ def edges():
 
 
 def title():
+    # 題の形を定めるのは works-dispatch の calls.hand_over の 1 か所だけ。そこから形を引いて役と name を入れ、出来た題を
+    # このツールの mine に通す（字の一致でなく、works-dispatch の付ける題の頼みを見分けるかで見る）。TITLE もこの題と合わせる
     src = (ROOT / "works-dispatch" / "dispatch" / "calls.py").read_text(encoding="utf-8")
-    check("\"title\": f\"ツール {role_name}/{tool['name']} が片づけられなかった仕事\"" in src,
-          "works-dispatch の calls.hand_over が頼みに付ける題の形が変わった。scripts/works-factory-pin.py の mine の見分けと TITLE を合わせる")
+    forms = re.findall(r'"title": f"([^"]*)"', src)
+    check(len(forms) == 1, f"calls.py に頼みの題の形が 1 か所に見つからない: {forms}")
+    made = forms[0].replace("{role_name}", "工場の版の見張り").replace("{tool['name']}", wp.TOOL)
+    check("{" not in made, f"題の形に知らない差し込みが在る: {forms[0]}")
+    check(made == TITLE, f"試験の TITLE が works-dispatch の付ける題と違う: {made!r} {TITLE!r}")
+    inbox = os.path.join(tmp(), *wp.deliver.INBOX)
+    os.makedirs(inbox)
+    with open(os.path.join(inbox, wp.deliver.LOG), "w", encoding="utf-8") as f:
+        f.write(json.dumps({"kind": "ask", "status": "queued", "id": "20261026-000000-cccccc", "title": made, "at": 5.0},
+                           ensure_ascii=False) + "\n")
+    check(wp.mine(inbox, lambda place: None) == (True, 5.0), "works-dispatch の付ける題の頼みを、scripts/works-factory-pin.py の mine がこのツールの頼みと見分けない")
     print("TITLE_OK")
 
 

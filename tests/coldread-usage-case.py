@@ -74,13 +74,19 @@ class UsageTests(unittest.TestCase):
         with patch.object(g.os, "open", side_effect=PermissionError("書込できない")), \
              patch.object(g.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, json.dumps(self.result).encode(), b"")):
             self.assertEqual(g._reader_attempt([], "秘密", 1, {}), self.result["structured_output"])
+        # 書けなかったことは知らせの集まりに積まれる。文の言い回しは見ず、積んだ知らせが両方の出口に出るかを見る
+        notes = sorted(g.READER_NOTICES)
+        self.assertTrue(notes)
         with patch.object(g, "_expiry_lines", return_value=[]):
-            self.assertIn("使用量記録", g.owner_note()["systemMessage"])
+            for note in notes:
+                self.assertIn(note, g.owner_note()["systemMessage"])
             with patch.object(g, "_drop_snaps"), patch.object(g, "rewakes", return_value=False), \
                  patch.object(g, "_read_pending", return_value=([], {}, [], 0)), patch.object(g, "_left_behind", return_value=""), \
                  patch("builtins.print") as output:
                 g.docs_check({"session_id": "writer", "hook_event_name": "Stop"})
-            self.assertIn("使用量記録", json.loads(output.call_args.args[0])["hookSpecificOutput"]["additionalContext"])
+            context = json.loads(output.call_args.args[0])["hookSpecificOutput"]["additionalContext"]
+            for note in notes:
+                self.assertIn(note, context)
 
     def test_invalid_counters_are_missing(self):
         row = self.record({"session_id": {"text": "秘密"}, "usage": {"output_tokens": float("inf"), "input_tokens": True},

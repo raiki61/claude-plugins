@@ -684,6 +684,10 @@ def _behind(tmp):
 
 
 def main():
+    if sys.argv[1:] == ["--list"]:
+        # tests/run.sh が表のケースと CASES のずれを照合するための一覧（1 行に 1 つ）
+        print("\n".join(CASES))
+        return 0
     if len(sys.argv) != 2 or sys.argv[1] not in CASES:
         sys.exit("使い方: catchup-switch-case.py <" + "|".join(CASES) + ">")
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:

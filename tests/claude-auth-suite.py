@@ -183,8 +183,9 @@ class TokenHelper(unittest.TestCase):
         self.assertNotIn("CLAUDE_CODE_OAUTH_TOKEN", out)
 
     def test_auth_env_ignores_a_foundry_flag_that_is_off(self):
-        # 旗が「使わない」の値なら、Bedrock・Vertex と同じく経路が無いとみなして窓口のトークンを足す
-        for off in claude_auth.OFF:
+        # 旗が「使わない」の値なら、Bedrock・Vertex と同じく経路が無いとみなして窓口のトークンを足す。
+        # 値の表は試験の側に持つ（被検査の OFF から回すと、OFF から値が落ちても残りだけを回して緑のまま）
+        for off in ("", "0", "false", "False", "no"):
             env = dict(HELPER, CLAUDE_CONFIG_DIR="/h/.claude-p2", CLAUDE_CODE_USE_FOUNDRY=off)
             out, note = claude_auth.auth_env(env, "linux", helper({"/h/.claude-p2": TOK}))
             self.assertEqual((out.get("CLAUDE_CODE_OAUTH_TOKEN"), note), (TOK, "helper"), off)

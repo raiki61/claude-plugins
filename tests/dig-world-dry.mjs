@@ -71,6 +71,9 @@ const between = (src, from, to) => {
   return a < 0 || b < 0 ? null : src.slice(a, b)
 }
 const evalDefs = (text, names) => new Function(`${text}\nreturn { ${names.join(', ')} }`)()
+// 工場の query-rule.md（1 行目の道具の印と、子を立てるときの区画を除く）。DW の QUERY_RULE はこれを字のまま埋める
+const QUERY_RULE_MD = read(path.join(WORLD, 'copied/query-rule.md')).split('\n').slice(1).join('\n')
+  .replace(/<!-- if spawns -->\n[\s\S]*?<!-- end spawns -->\n/, '').trim()
 const H = evalDefs(['fnv', 'shq', 'asciiJson'].map(n => defText(SRC, n)).join('\n'), ['fnv', 'shq', 'asciiJson'])
 const canonText = between(SRC, 'const canon =', '\n\n')
 const { sumOf } = evalDefs(`${defText(SRC, 'fnv')}\n${canonText}`, ['sumOf'])
@@ -193,16 +196,19 @@ const cases = {
     check(out.excerpts.kept === 2 && out.excerpts.dropped === 1 && out.excerpts.unchecked === 0, `抜き書きの数が違う: ${JSON.stringify(out.excerpts)}`)
     // 段ごとのモデル・役・見せる物
     const st = s => calls.filter(c => c.stage === s)
-    check(st('Restate')[0].opts.model === 'opus' && st('Leak')[0].opts.model === 'sonnet' && st('Search')[0].opts.model === 'sonnet'
-      && st('Recheck')[0].opts.model === 'haiku' && st('Compare')[0].opts.model === 'opus' && st('General')[0].opts.model === 'opus',
-    '段ごとのモデルが設計の 3.9 と違う')
+    // 期待のモデルは台本の MODELS の表から引く（表を写さない）。役のある一般の構造は Generalfallback の行を使う
+    const { MODELS } = evalDefs(defText(SRC, 'MODELS'), ['MODELS'])
+    for (const [s, row] of [['Restate', 'Restate'], ['Leak', 'Leak'], ['Search', 'Search'], ['Recheck', 'Recheck'], ['Compare', 'Compare'], ['General', 'Generalfallback']])
+      check(MODELS[row]?.model && st(s)[0]?.opts.model === MODELS[row].model, `${s} に MODELS の ${row} のモデル（${MODELS[row]?.model}）が渡らない: ${st(s)[0]?.opts.model}`)
+    // 漏れの照合は言い直しと別のモデル（設計の 3.3 の 3）
+    check(st('Leak')[0]?.opts.model !== st('Restate')[0]?.opts.model, '漏れの照合が言い直しと同じモデルで回った')
     for (const s of Object.keys(roles)) check(st(s)[0]?.opts.agentType === roles[s], `${s} に役 ${roles[s]} が渡らない`)
     const search = st('Search')[0].prompt
     for (const leak of [LINES[0].text, LINES[1].text, '手段 1', args.purpose, MEANS[0], 'mechanism 1']) {
       check(!search.includes(leak), `探す役に依頼の行・手段・目的が見える: ${leak}`)
     }
     check(search.includes('- langgraph 1.2.20 (pypi)') && search.includes(PROBLEM), '探す役に依存の名と版と類の文が渡らない')
-    check(search.includes('Do not put the target\'s names in queries.'), '探す役に検索の決まりが無い')
+    check(QUERY_RULE_MD.length > 0 && search.includes(QUERY_RULE_MD), '探す役に検索の決まり（copied/query-rule.md）が無い')
     const general = st('General')[0].prompt
     check(general.includes(PROBLEM) && !general.includes('langgraph') && !general.includes('手段'), '一般の構造に類の文だけが渡っていない')
     check(!general.includes('Do not use any tool'), '役のある一般の構造に、道具を使うなの足しが付いた（役の本文が持つ）')
@@ -219,7 +225,7 @@ const cases = {
     const { b64 } = evalDefs(`${defText(SRC, 'B64')}\n${defText(SRC, 'b64')}`, ['b64'])
     for (const t of ['', 'a', 'ab', 'abc', '聞く専用のツール', '😀 emoji', JSON.stringify(['x1', 'https://e.org/ä', '本文', 'deadbeef'])])
       check(Buffer.from(b64(t), 'base64').toString('utf8') === t && b64(t) === Buffer.from(t, 'utf8').toString('base64'), `b64 が Node の base64 と違う: ${t}`)
-    check(out.counts.stages.Restate.models.includes('opus') && out.counts.agents === calls.length, 'counts の段ごとのモデルかエージェントの数が違う')
+    check(out.counts.stages.Restate.models.includes(MODELS.Restate.model) && out.counts.agents === calls.length, 'counts の段ごとのモデルかエージェントの数が違う')
     // 役の無い一般の構造は、道具を使うなを足す
     const plain = await run(args, happy())
     check(plain.calls.find(c => c.stage === 'General').prompt.includes('Do not use any tool'), '役の無い一般の構造に、道具を使うなが無い')
@@ -420,8 +426,9 @@ print(json.dumps(m.shape_problems(json.loads(sys.stdin.buffer.read().decode("utf
       return happy()(call)
     })
     const rcs = again.calls.filter(c => c.stage === 'Recheck')
-    check(rcs.length === 2 && rcs[1].prompt.includes('## Why you are asked again') && rcs[1].prompt.includes('Permission to use Bash was denied')
-      && !rcs[0].prompt.includes('## Why you are asked again') && rcs[0].prompt.includes('no redirection such as 2>&1'),
+    // 頼み直しの文は、1 回目の文の後ろに訳を足した物（言い回しは写さず、1 回目の文との差で見る）
+    check(rcs.length === 2 && rcs[1].prompt.startsWith(rcs[0].prompt) && rcs[1].prompt.length > rcs[0].prompt.length
+      && rcs[1].prompt.includes('Permission to use Bash was denied') && !rcs[0].prompt.includes('Permission to use Bash was denied'),
       `打てなかった取り直しを、訳を添えて 1 回だけ頼み直さない: ${rcs.length} 回`)
     check(again.out.excerpts.kept === 3 && !/excerpts not checked/.test(again.out.reason), `頼み直した取り直しの結果が使われない: ${JSON.stringify(again.out.excerpts)}`)
     // 2 回とも打てなければ、照合できなかった物として数え、reason に出す（3 回目は頼まない）
@@ -518,10 +525,8 @@ print(json.dumps(m.shape_problems(json.loads(sys.stdin.buffer.read().decode("utf
 
   async texts() {
     // 工場の query-rule.md（1 行目の道具の印と、子を立てるときの区画を除く）と rejected.md が字のまま埋まっている
-    const qr = read(path.join(WORLD, 'copied/query-rule.md')).split('\n').slice(1).join('\n')
-      .replace(/<!-- if spawns -->\n[\s\S]*?<!-- end spawns -->\n/, '').trim()
     const embedded = between(SRC, 'const QUERY_RULE = `', '`\nconst rejectedBlock')?.slice('const QUERY_RULE = `'.length)
-    check(embedded === qr, 'QUERY_RULE が copied/query-rule.md と違う')
+    check(embedded === QUERY_RULE_MD, 'QUERY_RULE が copied/query-rule.md と違う')
     const rj = read(path.join(WORLD, 'copied/rejected.md')).trim()
     const { REJECTED } = evalDefs(between(SRC, 'const REJECTED =', '\n// workflows/.shared/prompts/query-rule.md'), ['REJECTED'])
     check(REJECTED('{rejection}') === rj, 'REJECTED が copied/rejected.md と違う')
@@ -534,11 +539,14 @@ print(json.dumps(m.shape_problems(json.loads(sys.stdin.buffer.read().decode("utf
     // AI に渡す文は英語（日本語の字は、受け付けの訳と固有の語の引用の外に無い）
     const prompts = between(SRC, '// ---- shared prompt parts ----', '// ---- acceptance (3.7) ----')
     check(prompts && !/[぀-ヿ一-鿿]/.test(prompts), '指示文に日本語の字が在る')
-    // 起動の合図は台本と DW で同じ
-    const prep = read(PREP)
-    check(/CALLERS = \["attention:check-world"\]/.test(prep) && /const CALLERS = \['attention:check-world'\]/.test(SRC), 'CALLERS が台本と DW で違う')
-    check(/SUM_KEYS = \["lines", "purpose", "means", "deps", "deps_note", "lang", "own_names"\]/.test(prep)
-      && SRC.includes("const SUM_KEYS = ['lines', 'purpose', 'means', 'deps', 'deps_note', 'lang', 'own_names']"), 'SUM_KEYS が台本と DW で違う')
+    // 起動の合図と sum を掛けるキーは台本と DW で同じ（両方の定義を読んで互いに比べ、試験に値を写さない）
+    const fromPy = JSON.parse(py(`import importlib.util, json
+spec = importlib.util.spec_from_file_location("sp", ${JSON.stringify(PREP)})
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+print(json.dumps({"CALLERS": m.CALLERS, "SUM_KEYS": m.SUM_KEYS}))`, ''))
+    const fromJs = evalDefs(`${defText(SRC, 'CALLERS')}\n${defText(SRC, 'SUM_KEYS')}`, ['CALLERS', 'SUM_KEYS'])
+    for (const k of ['CALLERS', 'SUM_KEYS'])
+      check(fromJs[k].length > 0 && JSON.stringify(fromPy[k]) === JSON.stringify(fromJs[k]), `${k} が台本と DW で違う: 台本 ${JSON.stringify(fromPy[k])} / DW ${JSON.stringify(fromJs[k])}`)
     // meta は純粋な字の並び
     const meta = between(SRC, 'export const meta = {', '\n}\n')
     check(meta && !/\$\{|\.\.\.|\(\)/.test(meta), 'meta が純粋な字の並びでない')
@@ -615,10 +623,15 @@ print(json.dumps(m.excerpt_check()))`, path.join(ROOT, 'attention/scripts/steps-
     let bad
     try { execFileSync(PY, [scr, '--what'], { input: '', encoding: 'utf8' }) } catch (e) { bad = JSON.parse(e.stdout) }
     check(bad?.ran === false, '知らない引数で止まらない')
-    // 定数は工場の steps.py と同じ値
+    // 定数は工場の steps.py と同じ値（工場の steps.py はこのリポジトリに無いので、MAX_BODY と User-Agent は字面で見る）
     const src = read(scr)
-    check(/MAX_EXCERPTS = 6\b/.test(src) && /MAX_BODY = 2 \* 1024 \* 1024/.test(src) && src.includes('"User-Agent": "works-world/1"'), '定数が工場の steps.py の値と違う')
-    check(/maxExcerpts: 6\b/.test(SRC) && /minExcerpt: 20\b/.test(SRC), 'DW の抜き書きの上限・下限が台本・工場と違う')
+    check(/^MAX_BODY = 2 \* 1024 \* 1024\b/m.test(src) && src.includes('"User-Agent": "works-world/1"'), '定数が工場の steps.py の値と違う')
+    // 抜き書きの上限・下限は、DW の LIMITS と台本の定義を互いに比べる（上限は台本 world-excerpts.py、下限は照合の写し copied/excerpts.py）
+    const { LIMITS } = evalDefs(defText(SRC, 'LIMITS'), ['LIMITS'])
+    const pyMax = Number((src.match(/^MAX_EXCERPTS = (\d+)\b/m) ?? [])[1])
+    const pyMin = Number((read(path.join(WORLD, 'copied/excerpts.py')).match(/^MIN_EXCERPT = (\d+)\b/m) ?? [])[1])
+    check(pyMax > 0 && LIMITS.maxExcerpts === pyMax && pyMin > 0 && LIMITS.minExcerpt === pyMin,
+      `DW の抜き書きの上限・下限が台本と違う: DW ${LIMITS.maxExcerpts}・${LIMITS.minExcerpt} / 台本 ${pyMax}・${pyMin}`)
     fs.rmSync(tmp, { recursive: true, force: true })
   },
 

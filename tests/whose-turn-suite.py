@@ -1307,9 +1307,9 @@ class PrFacts(unittest.TestCase):
             reviewThreads=conn(thread(comment(user("bob"), T2, "#7 の話"))),
         )
         p["updatedAt"] = T1
-        self.assertEqual(
-            [f for f in flow.pr_facts(p, "bob", {7: p}) if "動いていない" in f], []
-        )
+        self.assertEqual(flow.stale_reference_facts(p, {7: p}, ""), [])
+        # 自分の番号が行き先の一覧に在っても、事実の行は行き先を渡さないときと同じ
+        self.assertEqual(flow.pr_facts(p, "bob", {7: p}), flow.pr_facts(p, "bob"))
 
     def test_dead_bot_thread_carries_the_moved_marker(self):
         p = pr(
@@ -1406,9 +1406,8 @@ class Pending(unittest.TestCase):
     def test_unsent_review_does_not_break_sorting_posts(self):
         """PENDING の submittedAt は null。落とさないと発言を時刻で並べる所で全体が落ちる"""
         p = self.draft()
-        with self.assertRaises(TypeError):
-            flow.posts_of_pr(p)
         flow.drop_pending(p)
+        # 落とした後は並べられ、下書き（bob の T2）は最後の発言に出ない
         self.assertEqual(
             flow.latest_human_post(flow.posts_of_pr(p))["body"], "送信済みの指摘"
         )
@@ -1589,9 +1588,9 @@ class TurnThreads(unittest.TestCase):
             [c["body"] for _, c in flow.turn_threads(p, "bob")],
             ["d151bbee で直しました"],
         )
-        self.assertEqual(
-            flow.pr_facts(p, "bob")[1],
+        self.assertIn(
             "未解決 1 スレッド（bob が再確認 1・alice が返答 1）",
+            flow.pr_facts(p, "bob"),
         )
 
     def test_three_reviewers_each_keep_their_own_turn(self):
@@ -2487,13 +2486,19 @@ class Buckets(unittest.TestCase):
 
     def test_intro_not_added_in_others_ball(self):
         """相手の番の行には付けない。読まない件で行が増えるだけ。"""
+        # bob が指摘して作者の返事を待つ PR。bob の相手の番に載る（人の PR なので作者の除きには当たらない）
         p = pr(
             body="本文の 1 文。",
             additions=1, deletions=0, changedFiles=1,
-            reviewRequests=requests(user("carol")),
+            reviewThreads=conn(thread(comment(user("bob"), T2))),
         )
         out = self.render(p, who="bob")
-        self.assertNotIn("本文:", out)
+        self.assertEqual(self.bucket(out), "相手の番")
+        self.assertNotIn("本文の 1 文。", out)
+        (me,) = json.loads(self.render(p, who="bob", args=("--json",)))["sections"]
+        self.assertEqual([i["number"] for i in me["theirs"]], [1])
+        self.assertNotIn("intro", me["theirs"][0])
+        self.assertNotIn("size", me["theirs"][0])
 
     def test_intro_line_skips_headings_and_html(self):
         self.assertEqual(

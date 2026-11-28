@@ -249,8 +249,11 @@ def f10():
             raise AssertionError("上限を超えたコマンドを前処理した")
         return real(command)
     with patched(prepare=counting, MAX_LEN=300, Screen=fake_screen([], None)):
-        _, out = run_main("gh issue comment 1 --body '%s'" % ("x" * 400))
-        check(10, '"deny"' in out and "長すぎて" in out and not calls, "上限より前に前処理した: %r %r" % (calls, out[:150]))
+        long_cmd = "gh issue comment 1 --body '%s'" % ("x" * 400)
+        _, out = run_main(long_cmd)
+        # 前処理より後の止め方なら calls が残る。止めた理由には長さと上限の数を添える(文の言い回しは見ない)
+        check(10, '"deny"' in out and str(len(long_cmd)) in out and "300" in out and not calls,
+              "上限より前に前処理した: %r %r" % (calls, out[:150]))
     calls.clear()
     with patched(prepare=counting, Screen=fake_screen([], None)):
         run_main("gh issue comment 1 --body '%s'" % BODY)

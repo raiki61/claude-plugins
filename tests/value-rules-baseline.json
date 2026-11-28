@@ -208,10 +208,7 @@
   "rule3": 17
  },
  "tests/ci-watch-case.py": {
-  "rule3": 7
- },
- "tests/coldread-fix-case.py": {
-  "rule3": 1
+  "rule3": 6
  },
  "tests/coldread-raise-case.py": {
   "rule4": 1
@@ -248,10 +245,7 @@
   "rule3": 52
  },
  "tests/whose-turn-suite.py": {
-  "rule3": 22
- },
- "tests/works-factory-pin-case.py": {
-  "rule3": 1
+  "rule3": 21
  },
  "tiers/lib/tiers_check.py": {
   "rule4": 1

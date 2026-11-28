@@ -90,8 +90,9 @@ def _width():
     """縦線の右に全角の注釈を足して 60 桁を超えた行は、行番号と実際の幅で落ちる（縦線は元の桁の
     ままなので、落ちるのは幅の 1 件だけ）。短い注釈なら通る。"""
     line7 = "    │ 「gh pr checkout N で取れる」の案内    │ ← 前の版は案内だけで止まる"
-    w = fc.width(line7)
-    assert w > 60, w  # 検査の材料が幅を超えていなければ検査が空振りする
+    # 幅は手で数えた数。52 字のうち全角（「」・かな・漢字）が 21 字で 2 桁ずつ、縦線 │ と矢印 ← は
+    # 東アジアの幅が曖昧（A）の字で 1 桁。52 + 21 = 73 で 60 を超える
+    w = 73
     code, lines = fc.report(replaced(7, line7))
     narrow = replaced(7, "    │ 「gh pr checkout N で取れる」の案内    │ ← 案内だけ")
     n_code, n_lines = fc.report(narrow)

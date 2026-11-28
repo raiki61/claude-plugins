@@ -365,7 +365,7 @@ def _frames(tmp):
         "frame_option": "=== src/x.py" in one and "    | #│  x = 1" in one and "変更の中身" not in one,
         "frame_refuses_no_diff": "diff に無い" in refused,
         "jump": "    飛び先 src/x.py:1\n    | def f():" in out and "    飛び先 src/x.py:1\n    | def f():" in one,
-        "jump_in_heading": "『飛び先 path:行』は head（ローカル）の行番号" in out,
+        "jump_in_heading": wai.changemap.JUMP_NOTE in out,
         "jump_for_new": "    飛び先 src/n.py:1" in out and "    飛び先 src/s.py:1" in out,
         "prose_framed": "=== doc.md" in out and "    飛び先 doc.md:1" in out
                         and "    | 足した行" in out and "    | <!-- ┏━━ 追加 " in out,
@@ -378,8 +378,9 @@ def _frames(tmp):
     }
     with mock.patch.object(wai.changemap, "frame_diff", lambda **kw: None):
         failed = "\n".join(wai.changemap.frames_section(cwd, ["src/x.py"]))
+    # 文の言い回しは見ない。失敗と言い、file ごとの枠や「diff に無い」の断定（変更なしに読める）を出さないこと
     want["diff_failure_is_not_a_verdict"] = (
-        failed == "  変更の中身: 出せない（git diff が失敗した。木と件数だけが上の材料）")
+        "失敗" in failed and "===" not in failed and "diff に無い" not in failed)
     return verdict("FRAMES", want, out + "\n" + failed + "\n---\n" + one)
 
 

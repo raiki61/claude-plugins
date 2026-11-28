@@ -178,10 +178,18 @@ def case(name):
 @case("mine")
 def _mine():
     """自分が最後に発言していれば、そこが「私が最後にしたこと」になり、その後の依頼が別枠で出る。"""
-    return render(pr(comments=conn([
-        comment(T1, ME, "レビュー結果です。block が 1 件あります"),
+    mine = "レビュー結果です。block が 1 件あります"
+    out = render(pr(comments=conn([
+        comment(T1, ME, mine),
         comment(T2, "other", "@me 直しました。再確認をお願いします"),
     ])))
+    # run.sh は私の発言の本文を grep する。本文は「その後に起きたこと」などほかのセクションにも出うるので、
+    # 「私が最後にしたこと」の見出しの下に無ければ本文を伏せて NG を返し、grep を赤にする
+    _, _, rest = out.partition("## 私が最後にしたこと\n")
+    section = rest.split("\n## ", 1)[0]
+    if mine not in section:
+        return "MINE_NG 「私が最後にしたこと」に私の発言が無い\n" + out.replace(mine, "（私の発言の本文。伏せた）")
+    return out
 
 
 @case("ask-before-handover")

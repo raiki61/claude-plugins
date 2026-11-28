@@ -457,15 +457,6 @@ class FrameDiff(unittest.TestCase):
         self.assertTrue(all("-U10" in a for a in narrow))
         self.assertEqual(out.count("diff "), 2)                     # 2 本を繋いだ 1 本
 
-    def test_reader_git_config_cannot_change_the_diff(self):
-        """color.ui=always は ANSI を、diff.external は unified でない何かを、textconv は書き換えた行を
-        返す。どれも split_diff を外して「中身が diff に無い」の嘘になる（実測）。"""
-        cm.frame_diff(cwd="/x", paths=("src/a.py", "docs/b.md"))
-        for args in [a for a in self.calls if "diff" in a]:
-            for flag in ("--no-color", "--no-ext-diff", "--no-textconv",
-                         "--src-prefix=a/", "--dst-prefix=b/"):
-                self.assertIn(flag, args)
-
     def test_paths_omitted_asks_git_which_files_changed(self):
         cm.frame_diff(cwd="/x", rev="a...b")
         self.assertEqual(self.calls[0][-4:], ("--name-status", "-z", "a...b", "--"))  # HEAD でなければ rev-parse しない
@@ -598,6 +589,29 @@ class RealGitConfig(unittest.TestCase):
         self.assertIsNotNone(info)
         self.assertFalse(info["new"])
         self.assertIn("    return 3", "\n".join(info["blocks"][0]))
+
+    def test_reader_git_config_cannot_change_the_diff(self):
+        """color.ui=always は ANSI を、diff.external は unified でない何かを、textconv は書き換えた行を、
+        diff.noprefix は a/・b/ の無い見出しを返す。どれも split_diff を外して「中身が diff に無い」の嘘になる
+        （実測）。実物の git に読み手の設定を入れ、コード（-W）と散文（-U10）の両方の枠が読めるかで見る。"""
+        self.git("init", "-q")
+        self.write(".gitattributes", b"*.py diff=up\n*.md diff=up\n")
+        self.write("a.py", b"def f():\n    return 1\n")
+        self.write("b.md", b"# t\n\nold line\n")
+        self.commit_all()
+        for key, value in (("color.ui", "always"), ("diff.external", "echo EXTERNAL"),
+                           ("diff.up.textconv", "sed s/e/E/g"), ("diff.noprefix", "true")):
+            self.git("config", key, value)
+        self.write("a.py", b"def f():\n    return 2\n")
+        self.write("b.md", b"# t\n\nchanged line\n")
+        info = cm.framed_diff(cm.frame_diff(cwd=self.top, paths=("a.py", "b.md")) or "")
+        # textconv が効くと e が E に替わり、下の行が見つからない
+        for path, line in (("a.py", "    return 2"), ("b.md", "changed line")):
+            self.assertIn(path, info)
+            text = "\n".join("\n".join(block) for block in info[path]["blocks"])
+            self.assertIn(line, text)
+            self.assertNotIn("\x1b[", text)
+            self.assertNotIn("EXTERNAL", text)
 
     def test_repo_without_commits_frames_new_files(self):
         """git init の直後（HEAD が無い）は空の木と比べる。HEAD のまま渡すと git diff が失敗し、木は出るのに
