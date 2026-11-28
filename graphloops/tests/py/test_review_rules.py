@@ -464,7 +464,7 @@ def _judge_time_hit(tmp_path, name):
         out["questions"] = [{"key": "q1", "kind": "fork", "status": "resolved", "origin": "u1", "reason": "r", "resolution": "x",
                              "options": ["a", "b"]}]
         return sent, lambda: judge_reject(tmp_path, "p2.diagnose", out), lambda q, units: [sent]
-    if name in ("reopened_without_evidence", "dropped_questions"):
+    if name == "reopened_without_evidence" or name == "dropped_questions":   # どちらも履歴の段で当たる（JUDGE_TIME_RULES の 5 語のうち 2 語の分岐で、表の写しではない）
         return sent, lambda: judge_reject(tmp_path, "p2.history", reopened_block(), LEDGER), lambda a, c: [sent]
     if name == "stuck_unlisted":
         (tmp_path / "rounds").mkdir(exist_ok=True)

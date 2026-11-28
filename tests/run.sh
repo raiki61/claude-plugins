@@ -6330,7 +6330,7 @@ CS
 # 台本に足したケースを表に足し忘れると、そのケースは誰にも回されない。branch-name は上の「ブランチ名で呼ぶと移る」が回す
 cs_want=$({ printf '%s\n' "$CS_TABLE" | cut -d'|' -f1; echo branch-name; } | LC_ALL=C sort)
 expect_output 0 "SWITCH_LIST_OK" "catchup --switch: 表のケースと台本のケース（CASES）が 1 つずつ揃う" \
-    sh -c 'got=$("$1" "$2" --list | LC_ALL=C sort); if [ "$got" = "$3" ]; then echo SWITCH_LIST_OK; else printf "台本:\n%s\n表:\n%s\n" "$got" "$3"; fi' _ "$PY_BIN" "$CS_CASE" "$cs_want"
+    sh -c 'got=$("$1" "$2" --list | tr -d "\\r" | LC_ALL=C sort); if [ "$got" = "$3" ]; then echo SWITCH_LIST_OK; else printf "台本:\n%s\n表:\n%s\n" "$got" "$3"; fi' _ "$PY_BIN" "$CS_CASE" "$cs_want"
 expect_exit 1 "catchup --switch: 知らないケース名は落ちる（検査自体の空振りを防ぐ）" "$PY_BIN" "$CS_CASE"
 
 # ---- attention/scripts/lib/changemap: 変更の地図の部品（/catchup と /what-am-i-doing が共用） ----
@@ -8949,6 +8949,7 @@ NOT_RATCHET = {
     "TOC_HEAD": "tests/skill-body-case.py が目次を探す頭の行数（スキルの書き方の標準の決まり 5）。件数の突合ではない",
     "RUNS": "tests/ci-watch.py が workflow ごとに読む run の数（この中に緑が無ければ最後の緑を別に引く）。件数の突合ではない",
     "RUN_DONE": "tests/run.sh の頭の done-guard の印（最後の行まで来た回だけ 1 を立てる）。件数の突合ではない",
+    "GIB": "works-dispatch の dispatch/tests/test_disk.py がディスクの空きの寸法に使う 1 GiB のバイト数。件数の突合ではない",
 }
 DECLARED = re.compile(r"^([A-Z][A-Z0-9_]*)\s*=\s*[0-9]+", re.M)
 RATCHETS = []

@@ -4,6 +4,7 @@
 
 import os
 import pathlib
+import shlex
 import subprocess
 import time
 import unittest
@@ -32,7 +33,8 @@ class TmpDir(unittest.TestCase):
         self.assertEqual(where, os.path.join(self.job, "tmp", clean.TMPDIR_NAME))
         self.assertTrue(os.path.isdir(where))
         role_hook.put_tmpdir({"role": "担当"}, self.env, posix=True)   # やり直しの SessionStart でも 1 行のまま
-        self.assertEqual(self.lines(), [f"export TMPDIR={where}"])
+        # 1 行のまま、シェルが読み戻すと置き場のパスになる（Windows の runner のパスは \ と : を含むので引用で包まれる）
+        self.assertEqual([shlex.split(line) for line in self.lines()], [["export", f"TMPDIR={where}"]])
 
     def test_nothing_is_added_outside_a_background_department(self):
         self.assertIsNone(role_hook.put_tmpdir({}, self.env, posix=True))   # 部署でない

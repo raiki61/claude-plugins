@@ -60,6 +60,10 @@ RESEARCH_RULES = importlib.util.module_from_spec(_spec)
 RESEARCH_RULES.__dict__.update(_INJECT)
 _spec.loader.exec_module(RESEARCH_RULES)
 PROBE_MIN = RESEARCH_RULES.PROBE_MIN
+# 結末（convergence.outcome）の値は検証器が正本（台本で並べ直さない）
+_vspec = importlib.util.spec_from_file_location("research_record", VALIDATOR)
+RESEARCH_RECORD = importlib.util.module_from_spec(_vspec)
+_vspec.loader.exec_module(RESEARCH_RECORD)
 
 fails = []
 ran = 0
@@ -2517,7 +2521,7 @@ def test_relative_dir():
     last = drive(run, "std")
     # 結末（convergence.outcome）は決まったときだけ書かれる（rules の init_record は None で置く）——None のままなら途中で止まった
     outcome = run.record()["convergence"].get("outcome")
-    check(last["status"] in TERMINAL_STATUS and outcome in ("converged", "stopped"),
+    check(last["status"] in TERMINAL_STATUS and outcome in RESEARCH_RECORD.OUTCOMES,
           f"相対の準備でも run は最後まで進む（{last['status']}・{outcome}）")
     # 盤面が持つ綴りが 1 つであること——ここが割れると ref: の解決が cwd に依る
     st = run.state()
