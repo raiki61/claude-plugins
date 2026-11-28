@@ -25,7 +25,7 @@ import role_hook
 import limit_hook
 import refresh_hook
 import shape_hook
-from nodes import provision, wake
+from nodes import deliver, provision, wake
 
 
 BG = re.compile(r"^(claude-a\d) --bg --name ")
