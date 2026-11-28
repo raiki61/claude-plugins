@@ -6,6 +6,10 @@ attention（GitHub の PR ごとに、今どちらが動く番かを判定する
 
 ## [Unreleased]
 
+### Fixed
+
+- `/attention:check-world` の Workflow（dig-world）の段「言い直しの漏れ」で、AI に渡す文が、手段を前提にしない物を「2 つ」と書いて 3 つ並べていた。「3 つ」に直した（3 つめは、ほかの行の手段の上で起きる問題は、その手段を前提にしてよいという決まり）。漏れ・比べる・層の文は `attention/prompts/world/` の md（と日本語の訳）から生成する形に移した。AI に渡る文は、この 1 語のほかは前と同じ（頼み 15d87d）。
+
 ## [0.84.0] - 2026-11-26
 
 ### Changed
