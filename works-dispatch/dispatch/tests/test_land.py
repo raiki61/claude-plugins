@@ -150,9 +150,11 @@ class FakeHerdr:
 class FakeGh:
     """ゲートの CI。conclusion を試験が決める。on_run は run を返す前に呼ぶ（その間にメインブランチが進む形を作る）。"""
 
-    def __init__(self, conclusion="success", appear=0, on_run=None, open_pr=None):
+    def __init__(self, conclusion="success", appear=0, on_run=None, open_pr=None, pulls=None):
         self.conclusion, self.appear, self.on_run = conclusion, appear, on_run
-        self.asked, self.prs, self.open_pr = 0, [], open_pr   # open_pr: pr_for_branch が返す既存の PR（無ければ None）
+        # pulls: そのブランチを head にする既存の PR の並び（open_pr は 1 件だけのとき）。pr_for_branch が ghx と同じ選び方で返す
+        self.asked, self.prs, self.asked_bases = 0, [], []
+        self.pulls = pulls if pulls is not None else ([open_pr] if open_pr else [])
 
     def runs_for(self, repo, branch, sha, env=None):
         self.asked += 1
@@ -170,8 +172,9 @@ class FakeGh:
         return ["落ちた job: test（step: run）", "AssertionError: 版が据え置き"]
 
     def pr_for_branch(self, repo, branch, env=None, base=None):
-        self.asked_base = base
-        return self.open_pr
+        self.asked_bases.append(base)
+        mine = [x for x in self.pulls if base is None or x["base"] == base]   # gh pr list --base で絞るのと同じ
+        return next((x for x in mine if x["state"] == "OPEN"), mine[0] if mine else None)
 
     def create_pr(self, repo, branch, base, env=None):
         self.prs.append((branch, base))
@@ -973,13 +976,13 @@ class OtherModes(LandCase):
         code, out = self.land(w, FakePorts(w, gh=gh))
         self.assertEqual(code, 0, out)
         self.assertEqual(gh.prs, [])
-        self.assertEqual(gh.asked_base, "main")   # ほかのマージ先の開いた PR を拾わないよう、マージ先で絞って問う
+        self.assertEqual(gh.asked_bases, ["main"])   # ほかのマージ先の開いた PR を拾わないよう、マージ先で絞って問う
         self.assertEqual(w.origin("feat/a"), head)
         self.assertIn("push しただけ: https://pr/5", out)
 
-    def test_pr_mode_opens_a_new_pr_when_the_old_one_is_closed_or_aims_elsewhere(self):
+    def test_pr_mode_opens_a_new_pr_when_the_old_ones_are_closed(self):
         for old in ({"number": 5, "state": "MERGED", "head_sha": "0" * 40, "base": "main", "url": "https://pr/5"},
-                    {"number": 6, "state": "OPEN", "head_sha": "0" * 40, "base": "release/1", "url": "https://pr/6"}):
+                    {"number": 6, "state": "CLOSED", "head_sha": "0" * 40, "base": "release/1", "url": "https://pr/6"}):
             with self.subTest(old=old["number"]):
                 w = FakeWorld(scratch(dir=self.tmp), {".claude/company.toml": '[land]\nmode = "pr"\n'})
                 w.work()
@@ -988,6 +991,32 @@ class OtherModes(LandCase):
                 self.assertEqual(code, 0, out)
                 self.assertEqual(gh.prs, [("feat/a", "main")])
                 self.assertIn("PR を出した: https://pr/1", out)
+
+    def test_pr_mode_stops_without_a_new_pr_when_the_open_pr_is_stacked_on_another_branch(self):
+        # 2026-11-28、guided-resolver: ブランチの開いた PR #3098 のマージ先が #3096 のブランチだったのに、--land が main への #3112 を
+        # 新しく立てた（頼み a82db6）。push だけして PR は出さず、止めて、待つかマージ先を替えるかを示す
+        w = FakeWorld(self.tmp, {".claude/company.toml": '[land]\nmode = "pr"\n'})
+        head = w.work()
+        gh = FakeGh(pulls=[{"number": 3112, "state": "CLOSED", "head_sha": "0" * 40, "base": "main", "url": "https://pr/3112"},
+                           {"number": 3098, "state": "OPEN", "head_sha": "0" * 40, "base": "fix/parent", "url": "https://pr/3098"}])
+        code, out = self.land(w, FakePorts(w, gh=gh))
+        self.assertEqual(code, 1, out)
+        self.assertEqual(gh.prs, [])
+        self.assertEqual(w.origin("feat/a"), head)
+        self.assertIn("止めた", out)
+        self.assertIn("https://pr/3098", out)
+        self.assertIn("fix/parent", out)
+        self.assertIn("gh pr edit https://pr/3098 --base main", out)
+
+    def test_pr_mode_reuses_the_open_pr_to_main_even_beside_a_stacked_one(self):
+        w = FakeWorld(self.tmp, {".claude/company.toml": '[land]\nmode = "pr"\n'})
+        w.work()
+        gh = FakeGh(pulls=[{"number": 6, "state": "OPEN", "head_sha": "0" * 40, "base": "release/1", "url": "https://pr/6"},
+                           {"number": 5, "state": "OPEN", "head_sha": "0" * 40, "base": "main", "url": "https://pr/5"}])
+        code, out = self.land(w, FakePorts(w, gh=gh))
+        self.assertEqual(code, 0, out)
+        self.assertEqual(gh.prs, [])
+        self.assertIn("push しただけ: https://pr/5", out)
 
     def test_role_override(self):
         w = FakeWorld(self.tmp, {**CI_FILES, ".claude/company.toml": CI_RULES + '[land.roles.research]\nmode = "none"\n'})

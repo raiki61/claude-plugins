@@ -387,14 +387,31 @@ def drop_gate(source, ref, g):
 
 
 def offer_pr(source, repo, branch, main, g, gh, env=None):
-    """部署のブランチを origin に出し、メインブランチへの PR を出す。(PR の URL, 新しく出したか) を返す。
-    そのブランチからメインブランチへの開いた PR が既に在れば、push だけしてその PR を返す（2 回目の --land。
-    GitHub は同じ head と base の開いた PR を 2 つ作らせず、gh pr create が already exists で断るため）。"""
+    """部署のブランチを origin に出し、メインブランチへの PR を出す。(PR の URL, どうしたか, その PR のマージ先) を返す。
+    どうしたかは made（新しく出した）・reused（そのブランチからメインブランチへの開いた PR が既に在り、push だけした。2 回目の --land。
+    GitHub は同じ head と base の開いた PR を 2 つ作らせず、gh pr create が already exists で断るため）・stacked（メインブランチへの開いた PR は
+    無く、ほかのブランチへの開いた PR〔積み重ねた PR〕が在るので、push だけして PR は出さない）。
+    stacked で新しく出さないのは、gh pr create が同じ head でもマージ先が違えば 2 つ目の PR を作り、部署が積み重ねた PR とは別に、
+    持ち主が見ていないメインブランチへの PR が立つため（2026-11-28、guided-resolver の #3098〔マージ先は #3096 のブランチ〕と同じブランチから
+    main への #3112 が立った。頼み a82db6）。push はする（その PR に今の commit が載る。2 回目の --land と同じ）。"""
     g.push(source, g.rev(source, f"refs/heads/{branch}"), branch)
     had = gh.pr_for_branch(repo, branch, env=env, base=main)   # マージ先で絞る（ほかのマージ先の開いた PR が先に選ばれないように）
     if had and had.get("state") == "OPEN" and had.get("base") == main and had.get("url"):
-        return had["url"], False
-    return gh.create_pr(repo, branch, main, env=env), True
+        return had["url"], "reused", main
+    other = gh.pr_for_branch(repo, branch, env=env)   # マージ先で絞らない（開いた PR が有れば、それを先に返す）
+    if other and other.get("state") == "OPEN" and other.get("url"):
+        return other["url"], "stacked", other.get("base")
+    return gh.create_pr(repo, branch, main, env=env), "made", main
+
+
+def stacked_text(branch, url, base, main):
+    """offer_pr が stacked を返したときに --land が出す、止めた訳と次の手。"""
+    return (f"止めた: ブランチ {branch} には、マージ先が {base or '-'}（メインブランチ {main} でない）の開いた PR {url} が既に在るので、"
+            f"{main} への PR は出していない（ブランチの push だけした。その PR に今の commit が載る）。次のどちらかを選ぶ:\n"
+            f"- {base or 'マージ先'} の PR が先に {main} へ入るのを待つ。GitHub は、マージした PR のブランチを消すと、そこをマージ先にした"
+            f"開いた PR のマージ先を、マージした PR のマージ先へ自動で替える。替わった後に --land を打ち直せば、push だけしてその PR の URL を出す\n"
+            f"- マージ先を今 {main} に替える: gh pr edit {url} --base {main}（{base or 'マージ先'} の commit もこの PR に載る。"
+            f"レビューのコメントが古くなることがある）。替えた後に --land を打ち直す")
 
 
 def stage(source, path, sha, g):

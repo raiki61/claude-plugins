@@ -186,8 +186,11 @@ def _main(cfg, repo, name, ports, rows, reasons, config_path, pause, today, chec
         if rules["mode"] == "pr":
             if rules["bump"]:
                 print("注記: 取り込み方 pr では版を上げない（版上げは PR の側で）")
-            url, made = land.offer_pr(source, repo.repo, branch, main, g, ports.gh, env)
-            print(f"PR を出した: {url}" if made else f"PR は既に開いているので、ブランチを push しただけ: {url}")
+            url, how, onto = land.offer_pr(source, repo.repo, branch, main, g, ports.gh, env)
+            if how == "stacked":
+                print(land.stacked_text(branch, url, onto, main))
+                return 1
+            print(f"PR を出した: {url}" if how == "made" else f"PR は既に開いているので、ブランチを push しただけ: {url}")
             return 0
         if rules["queue"]:
             queue = os.path.join(g.common_dir(source), rules["queue"])
@@ -751,7 +754,7 @@ def _preview(cfg, repo, ports, found, place, name, rules, main, head, rows, reas
         if rules["bump"]:
             print("注記: 取り込み方 pr では版を上げない（版上げは PR の側で）")
         print(f"する事: 部署のブランチ {branch}（{head[:7]}）を origin に push し、メインブランチ {main} への PR を出す"
-              "（開いた PR が既に在れば push だけ）")
+              "（開いた PR が既に在れば push だけ。マージ先がメインブランチでない開いた PR しか無ければ、push だけして PR は出さずに止める）")
         return 0
     try:
         base = g.remote_rev(source, main)
