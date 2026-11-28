@@ -1307,9 +1307,20 @@ class PrFacts(unittest.TestCase):
             reviewThreads=conn(thread(comment(user("bob"), T2, "#7 の話"))),
         )
         p["updatedAt"] = T1
-        self.assertEqual(flow.stale_reference_facts(p, {7: p}, ""), [])
+        # 行き先は、番号が自分と同じでなければ「参照後に動いていない」に当たる形にする（参照より後に作られ、参照より前から動いていない）。
+        # 自分を行き先に渡すと作られた時刻の条件で外れ、番号の除外を消しても緑のままになる
+        dest = pr(number=7, createdAt=T3)
+        dest["updatedAt"] = T1
+        other = pr(
+            number=8,
+            createdAt=T1,
+            reviewThreads=conn(thread(comment(user("bob"), T2, "#7 の話"))),
+        )
+        other["updatedAt"] = T1
+        self.assertNotEqual(flow.stale_reference_facts(other, {7: dest}, ""), [])  # 別の PR からなら数える
+        self.assertEqual(flow.stale_reference_facts(p, {7: dest}, ""), [])
         # 自分の番号が行き先の一覧に在っても、事実の行は行き先を渡さないときと同じ
-        self.assertEqual(flow.pr_facts(p, "bob", {7: p}), flow.pr_facts(p, "bob"))
+        self.assertEqual(flow.pr_facts(p, "bob", {7: dest}), flow.pr_facts(p, "bob"))
 
     def test_dead_bot_thread_carries_the_moved_marker(self):
         p = pr(
