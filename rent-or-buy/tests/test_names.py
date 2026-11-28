@@ -45,9 +45,16 @@ class NamesTest(unittest.TestCase):
         snap = json.loads((PLUGIN / "prompt_cache" / "snapshot.json").read_text(encoding="utf-8"))
         self.assertTrue(snap["commit"] and snap["fetched"] and snap["source"].startswith("https://"))
         self.assertTrue(all(k.startswith("claude-") and "/" not in k and prices.usable(v) for k, v in snap["models"].items()))
-        opus = snap["models"]["claude-opus-5-5"]
-        self.assertEqual([opus[prices.FIELDS[k]] for k in ("input", "write_5m", "write_1h", "read", "output")],
-                         [4e-6, 5e-6, 8e-6, 2e-7, 2e-5])
+        self.assertIn("claude-opus-5-5", snap["models"])   # 試験と既定が引くモデル
+        # FIELDS の鍵が LiteLLM の値段表のどのフィールドを読むかは、作った見本の値（フィールドごとに別の値）で見る。snapshot を
+        # 取り直して単価が変わっても赤にならない
+        entry = {"input_cost_per_token": 2e-6, "cache_creation_input_token_cost": 3e-6,
+                 "cache_creation_input_token_cost_above_1hr": 4e-6, "cache_read_input_token_cost": 1e-7,
+                 "output_cost_per_token": 1e-5}
+        cleaned = prices.pick({"claude-x-1": entry})["claude-x-1"]
+        price = prices.Price("claude-x-1", cleaned, "override", {})
+        self.assertEqual({k: price.rate(k) for k in ("input", "write_5m", "write_1h", "read", "output")},
+                         {"input": 2e-6, "write_5m": 3e-6, "write_1h": 4e-6, "read": 1e-7, "output": 1e-5})
 
 
 if __name__ == "__main__":

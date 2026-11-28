@@ -4,6 +4,7 @@
 message.usage など）は Claude Code 2.1.310 の記録で確かめた。
 """
 import calendar
+import datetime
 import time
 from unittest import mock
 import json
@@ -86,11 +87,20 @@ class TranslateTest(unittest.TestCase):
         self.assertEqual((tr["skipped_lines"], tr["last_request_at"]), (0, "2026-10-24T04:00:00.000Z"))
 
     def test_keepalive_numbers(self):
-        out = translate.keepalive({"model": "claude-opus-5-5", "lifetime": 300, "context_tokens": 100000, "spent": 0,
+        # 単価は snapshot.json（prices.lookup）、keepalive 1 本の量と送る間合いは prices.toml（prices.defaults）から引く
+        d = prices.defaults()["keepalive"]
+        opus = prices.lookup("claude-opus-5-5", env=self.env)
+        n = 100000
+        # 寿命 300 秒は 5 分の書き込みの単価で、読み・書き込みの単価が別の値なので、使うフィールドを取り違えると額が変わる
+        self.assertEqual(len({opus.rate("read", n), opus.rate("write_5m", n), opus.rate("write_1h", n)}), 3)
+        out = translate.keepalive({"model": "claude-opus-5-5", "lifetime": 300, "context_tokens": n, "spent": 0,
                                    "certain": True, "last_request_at": "2026-10-24T04:48:48.895Z"}, env=self.env)
-        self.assertAlmostEqual(out["rent"], 2e-7 * 100000 + 5e-6 * 380 + 2e-5 * 5)
-        self.assertAlmostEqual(out["buy"], (5e-6 - 2e-7) * 100000)
-        self.assertEqual((out["action"], out["next_at"], out["prices"]["source"]), ("rent", "2026-10-24T04:52:48Z", "snapshot"))
+        self.assertAlmostEqual(out["rent"], opus.rate("read", n) * n + opus.rate("write_5m", n) * d["write_tokens"]
+                               + opus.rate("output", n) * d["output_tokens"])
+        self.assertAlmostEqual(out["buy"], (opus.rate("write_5m", n) - opus.rate("read", n)) * n)
+        next_at = (datetime.datetime(2026, 10, 24, 4, 48, 48, tzinfo=datetime.timezone.utc)
+                   + datetime.timedelta(seconds=300 - d["margin_s"])).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self.assertEqual((out["action"], out["next_at"], out["prices"]["source"]), ("rent", next_at, "snapshot"))
         self.assertFalse(out["consult"])
         self.assertEqual(out["reason"], "within_buy_cost")
         self.assertNotIn("guide", out)
@@ -202,12 +212,22 @@ class TranslateTest(unittest.TestCase):
         self.assertIn("/abc123/", urls[1])
 
     def test_compact_numbers_and_haiku_tier(self):
-        facts = {"model": "claude-opus-5-5", "lifetime": 300, "context_tokens": 150000, "spent": 0}
-        out = translate.compact(facts, env=self.env)
-        self.assertAlmostEqual(out["rent"], (150000 - 37000 - 8000) * 2e-7)
-        self.assertAlmostEqual(out["buy"], 37000 * 5e-6 + 8000 * 2e-7 + 9000 * 2e-5 + out["rent"])
+        # 単価は snapshot.json（prices.lookup）、compact の後の量と要約の量は prices.toml（prices.defaults）から引く
+        d = prices.defaults()["compact"]
+        opus = prices.lookup("claude-opus-5-5", env=self.env)
+        n, after = 150000, d["after_write_tokens"] + d["after_read_tokens"]
+        self.assertNotEqual(opus.rate("write_5m", after), opus.rate("write_1h", after))   # 寿命 300 秒は 5 分の書き込みの単価
+        out = translate.compact({"model": "claude-opus-5-5", "lifetime": 300, "context_tokens": n, "spent": 0}, env=self.env)
+        self.assertAlmostEqual(out["rent"], (n - after) * opus.rate("read", n))
+        self.assertAlmostEqual(out["buy"], d["after_write_tokens"] * opus.rate("write_5m", after)
+                               + d["after_read_tokens"] * opus.rate("read", after)
+                               + d["summary_tokens"] * opus.rate("output", n) + out["rent"])
+        # Haiku は送る文が 10 万（prices.TIER_LIMIT）を超えると上の段の単価になる。境目ちょうどは下の段
         haiku = prices.lookup("claude-haiku-5-5", env=self.env)
-        self.assertEqual((haiku.rate("read", 100000), haiku.rate("read", 100001)), (1e-8, 5e-8))
+        self.assertEqual(prices.TIER_LIMIT, 100000)
+        self.assertNotEqual(haiku.rate("read", 100000), haiku.rate("read", 100001))
+        self.assertEqual(haiku.rate("read", 100000), haiku.rate("read", 0))
+        self.assertEqual(haiku.rate("read", 100001), haiku.rate("read", 150000))
 
     def test_cli_smoke(self):
         path = sample(self.tmp.name)

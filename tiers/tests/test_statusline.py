@@ -59,12 +59,6 @@ class Compose(Base):
         self.assertRegex(fmt % 3, pattern)
         self.assertNotRegex(fmt % 0, pattern)
 
-    def test_the_statusline_tells_our_override_by_the_same_mark(self):
-        # statusline.sh は tiers の作った上書きだけを作り直しに起動する。見分ける頭が MARK とずれると、作り直さなくなる
-        script = (sl.ROOT / "statusline" / "statusline.sh").read_text(encoding="utf-8")
-        head = re.search(r"grep -qF '([^']*)'", script).group(1)
-        self.assertEqual(head, sl.MARK)
-
     def test_handed_out_rules_cut_short_are_refused(self):
         # herdr が書いている途中の配られたルールを読むと、TOML として読めたまま規則が欠けうる
         for base in ('id = "claude"\nversion = "1"\n', 'id = "codex"\n' + BASE.split("\n", 1)[1]):

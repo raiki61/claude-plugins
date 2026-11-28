@@ -6,6 +6,7 @@ import os
 import pathlib
 import subprocess
 import sys
+import tempfile
 import unittest
 import unittest.mock
 
@@ -208,14 +209,34 @@ class Main(unittest.TestCase):
         self.assertIn("0〜3", p.stdout)
 
 
+def command_in(folder, name):
+    """folder に起動できるコマンド name を置いて、その道を返す（Windows では PATHEXT で引ける .cmd にする）。"""
+    path = os.path.join(folder, name + (".cmd" if os.name == "nt" else ""))
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("@exit 0\n" if os.name == "nt" else "#!/bin/sh\nexit 0\n")
+    os.chmod(path, 0o755)
+    return path
+
+
 class RealProbe(unittest.TestCase):
     def test_which_uses_the_given_path(self):
-        probe = tiers_check.Probe(env={"PATH": ""}, platform="linux")
-        self.assertIsNone(probe.which("tiers-no-such-command"))
+        # 渡した PATH の上だけを探す: 置いたフォルダを渡せば見つかり、空の PATH では同じ名前も見つからない
+        with tempfile.TemporaryDirectory() as folder:
+            path = command_in(folder, "tiers-probe-command")
+            got = tiers_check.Probe(env={"PATH": folder}, platform="linux").which("tiers-probe-command")
+            self.assertIsNotNone(got)
+            self.assertTrue(os.path.samefile(got, path))
+            self.assertIsNone(tiers_check.Probe(env={"PATH": ""}, platform="linux").which("tiers-probe-command"))
+        self.assertIsNone(tiers_check.Probe(env={"PATH": ""}, platform="linux").which("tiers-no-such-command"))
 
     def test_shell_has_falls_back_to_which_on_windows(self):
-        probe = tiers_check.Probe(env={"PATH": ""}, platform="win32")
-        self.assertFalse(probe.shell_has("tiers-no-such-command"))
+        # POSIX のシェルの無い所（win32）では PATH の上を探す: 置いたコマンドは在ると答え、無いコマンドは（PowerShell も無いので）無いと答える
+        with tempfile.TemporaryDirectory() as folder:
+            command_in(folder, "tiers-probe-command")
+            probe = tiers_check.Probe(env={"PATH": folder}, platform="win32")
+            self.assertTrue(probe.shell_has("tiers-probe-command"))
+            self.assertFalse(probe.shell_has("tiers-no-such-command"))
+        self.assertFalse(tiers_check.Probe(env={"PATH": ""}, platform="win32").shell_has("tiers-no-such-command"))
 
     def test_shell_has_looks_for_powershell_functions_on_windows(self):
         # $PROFILE に書いた関数は PATH に無いので、在る方の PowerShell に Get-Command で聞く

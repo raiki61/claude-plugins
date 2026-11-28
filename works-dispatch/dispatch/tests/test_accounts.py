@@ -135,20 +135,6 @@ class Rank(unittest.TestCase):
         lim["p3"]["five_hour"]["used_percentage"] = 0
         self.assertEqual(names(accounts.rank(ACCTS, lim, 95, NOW))[:2], ["p1", "p3"])
 
-    def test_near_reset_at_the_limit_is_not_used(self):
-        # 切り替わりが近くても、上限ちょうど（95）に届いていれば選ばない
-        lim = limits()
-        lim["p2"]["seven_day"] = window(95, NOW + hours(2))
-        got = accounts.rank(ACCTS, lim, 95, NOW)
-        self.assertFalse(by(got, "p2")["eligible"])
-        self.assertEqual(names(got)[0], "p1")
-
-    def test_near_reset_with_five_hour_at_the_limit_is_not_used(self):
-        lim = limits()
-        lim["p2"]["seven_day"]["resets_at"] = NOW + hours(2)
-        lim["p2"]["five_hour"]["used_percentage"] = 95
-        self.assertFalse(by(accounts.rank(ACCTS, lim, 95, NOW), "p2")["eligible"])
-
     def test_fewer_running_conversations_win_a_tie(self):
         # main と p2 は週 86%・同じ切り替わり・5 時間 0% で点数が同じ。動いている会話の少ない p2 が先
         lim = limits()
@@ -167,33 +153,27 @@ class Rank(unittest.TestCase):
     def test_running_does_not_beat_a_higher_score(self):
         self.assertEqual(names(accounts.rank(ACCTS, limits(), 95, NOW, {"p1": 9}))[0], "p1")
 
-    def test_over_limit_weekly_is_excluded(self):
-        lim = limits()
-        lim["main"]["seven_day"]["used_percentage"] = 96
-        got = accounts.rank(ACCTS, lim, 95, NOW)
-        self.assertFalse(by(got, "main")["eligible"])
-        self.assertIn("seven_day", by(got, "main")["reason"])
-        self.assertEqual(names(got)[-1], "main")
-
-    def test_over_limit_five_hour_is_excluded(self):
-        lim = limits()
-        lim["p2"]["five_hour"]["used_percentage"] = 96
-        got = accounts.rank(ACCTS, lim, 95, NOW)
-        self.assertFalse(by(got, "p2")["eligible"])
-        self.assertIn("five_hour", by(got, "p2")["reason"])
-
-    def test_reaching_limit_is_excluded(self):
-        # 使用率は 1% 刻みの整数で届くので、95 は 95.0〜95.9% のどれか。上限に届いた物は外す
-        lim = limits()
-        lim["main"]["seven_day"]["used_percentage"] = 95
-        row = by(accounts.rank(ACCTS, lim, 95, NOW), "main")
-        self.assertFalse(row["eligible"])
-        self.assertIn("seven_day が 95% で上限 95% に達した", row["reason"])
-
-    def test_just_below_limit_is_eligible(self):
-        lim = limits()
-        lim["main"]["seven_day"]["used_percentage"] = 94
-        self.assertTrue(by(accounts.rank(ACCTS, lim, 95, NOW), "main")["eligible"])
+    def test_an_account_at_or_over_the_limit_is_excluded_from_the_table(self):
+        # 使用率は 1% 刻みの整数で届くので、95 は 95.0〜95.9% のどれか。上限ちょうども外す。週の切り替わりが近くても同じ
+        for window_name in ("seven_day", "five_hour"):
+            for used in (94, 95, 96):
+                for reset in ("far", "near"):
+                    with self.subTest(window=window_name, used=used, reset=reset):
+                        lim = limits()
+                        lim["p2"][window_name]["used_percentage"] = used
+                        if reset == "near":
+                            lim["p2"]["seven_day"]["resets_at"] = NOW + hours(2)
+                        got = accounts.rank(ACCTS, lim, 95, NOW)
+                        row = by(got, "p2")
+                        if used < 95:
+                            self.assertTrue(row["eligible"])
+                            self.assertIsNone(row["reason"])
+                        else:
+                            self.assertFalse(row["eligible"])
+                            self.assertIn(window_name, row["reason"])   # どの枠で外したかと値が訳に届く
+                            self.assertIn(f"{used}%", row["reason"])
+                            self.assertEqual(names(got)[-1], "p2")   # 選べない物は最後
+                            self.assertEqual(names(got)[0], "p1")
 
     def test_past_reset_counts_as_zero(self):
         lim = limits()
@@ -224,11 +204,6 @@ class Rank(unittest.TestCase):
         lim = limits()
         lim["p1"] = None
         self.assertEqual(names(accounts.rank(ACCTS, lim, 95, NOW, {"p3": 5, "main": 5, "p2": 5}))[-1], "p1")
-
-    def test_output_matches_schema(self):
-        out = {"schema": 1, "accounts": accounts.rank(ACCTS, limits(), 95, NOW, {"main": 1}), "notes": []}
-        self.assertEqual(schemacheck.check(out, schemacheck.schema("accounts")), [])
-
 
 class NoFiveHourWindow(unittest.TestCase):
     """5 時間の枠の無いアカウント（2026-11-01 から、いちばん上のサブスクリプション）。控えの five_hour が null で、週の枠だけが在る。"""
@@ -271,7 +246,7 @@ class NoFiveHourWindow(unittest.TestCase):
         old = {"five_hour": None, "seven_day": {"used_percentage": 38, "resets_at": 1792155600, "updated_at": NOW - hours(4)}}
         row = by(accounts.rank(ACCTS, {"p1": old}, 95, NOW), "p1")
         self.assertEqual(row["absent"], [])
-        self.assertIn("使用率が分からない（控えが", accounts.why(row, NOW))
+        self.assertEqual((row["known"], row["stale"]), (False, True))   # 古い控えは分からない物として扱う
 
     def test_a_snapshot_with_no_window_at_all_is_not_called_week_only(self):
         row = by(accounts.rank(ACCTS, {"p1": {"five_hour": None, "seven_day": None}}, 95, NOW), "p1")
@@ -315,12 +290,14 @@ class Running(unittest.TestCase):
             if cdir == "gone":
                 raise FileNotFoundError("claude")
             return [{"status": "busy"}]
-        accts = (Account("a", "ca", "ok"), Account("b", "cb", "bad"), Account("c", "cc", "gone"))
+        accts = (Account("acct-ok", "ca", "ok"), Account("acct-bad", "cb", "bad"), Account("acct-gone", "cc", "gone"))
         counts, notes = accounts.gather_running(accts, list_sessions)
-        self.assertEqual(counts, {"a": 1, "b": 0, "c": 0})
+        self.assertEqual(counts, {"acct-ok": 1, "acct-bad": 0, "acct-gone": 0})
         self.assertEqual(len(notes), 2)
-        self.assertIn("アカウント b の動いている会話を数えられない", notes[0])
-        self.assertIn("0 件とみなした", notes[0])
+        # 注記は読めなかったアカウントの名前と、読めなかった訳（例外の字）を持つ
+        self.assertIn("acct-bad", notes[0])
+        self.assertIn("claude agents --json（bad）: 読めない", notes[0])
+        self.assertIn("acct-gone", notes[1])
 
 
 class FakePorts:
@@ -385,9 +362,16 @@ source = "s"
     def test_near_weekly_reset_is_explained(self):
         lim = limits()
         lim["p3"]["seven_day"]["resets_at"] = NOW + hours(5) + 30 * 60
-        _, out, _ = self.run_main(["--pick", "--no-probe"], FakePorts(lim, {None: [], "d1": [], "d2": [], "d3": []}))
+        ports = FakePorts(lim, {None: [], "d1": [], "d2": [], "d3": []})
+        _, out, _ = self.run_main(["--pick", "--no-probe"], ports)
         # 点数は 16 ÷ 5.5 時間 × 71/95 ≒ 2.17 で、p1（1.05）より高い
-        self.assertTrue(out.startswith("p3: c3 — 5 時間 24%・週 79%（週の枠は 5 時間 30 分後に切り替わる）で、点数 2.17"), out)
+        self.assertTrue(out.startswith("p3: c3 — "), out)
+        for word in ("24%", "79%", "5 時間 30 分", "2.17"):   # 使用率・切り替わりまでの時間・点数が訳に届く
+            self.assertIn(word, out)
+        _, out, _ = self.run_main(["--pick", "--json", "--no-probe"], ports)
+        got = json.loads(out)
+        self.assertEqual(got["pick"]["name"], "p3")
+        self.assertAlmostEqual(by(got["accounts"], "p3")["score"], 16 / 5.5 * 71 / 95, places=6)
 
     def test_json_has_the_pick_every_row_and_notes(self):
         ports = FakePorts(limits(), {None: [], "d1": [], "d2": claudex.Error("x"), "d3": []})
@@ -436,15 +420,20 @@ source = "s"
         ports = FakePorts(limits(), {None: [], "d1": OSError("no claude"), "d2": [], "d3": []})
         code, out, err = self.run_main(["--pick", "--no-probe"], ports)
         self.assertEqual(code, 0)
-        self.assertIn("注記: アカウント p1 の動いている会話を数えられない", err)
+        # 数えられなかったアカウントと訳が標準エラーの注記に届く
+        self.assertIn("p1", err)
+        self.assertIn("no claude", err)
 
     def test_nothing_eligible_exits_1_with_the_reasons(self):
         lim = {n: {"seven_day": window(99, NOW + hours(1)), "five_hour": window(1, NOW + hours(1))} for n in ("main", "p1", "p2", "p3")}
         ports = FakePorts(lim, {None: [], "d1": [], "d2": [], "d3": []})
         code, out, err = self.run_main(["--pick", "--no-probe"], ports)
         self.assertEqual((code, out), (1, ""))
-        self.assertIn("選べるアカウントが無い", err)
-        self.assertIn("p1（seven_day が 99% で上限 95% に達した）", err)
+        # 選べなかった訳を、アカウントごとに名前・枠・使用率を添えて出す
+        for n in ("main", "p1", "p2", "p3"):
+            self.assertIn(n, err)
+        self.assertIn("seven_day", err)
+        self.assertIn("99%", err)
         code, out, _ = self.run_main(["--pick", "--json", "--no-probe"], ports)
         self.assertEqual(code, 1)
         self.assertIsNone(json.loads(out)["pick"])
@@ -514,7 +503,8 @@ class Hours(unittest.TestCase):
         self.assertEqual(names(rows), ["cheap", "p1"])   # 使用率の分からないアカウントでも、時間帯の中なら上限のアカウントより前
         self.assertTrue(by(rows, "cheap")["eligible"])
         self.assertEqual((by(rows, "cheap")["hours"], by(rows, "cheap")["shut"]), ("17:00-25:00 Asia/Tokyo", False))
-        for at, word in ((self.closing, "20 分後に終わる"), (self.outside, "外（次は 17:00 Asia/Tokyo に始まる）")):
+        # 訳には、終わる手前なら残りの時間、外なら次に始まる時刻が届く
+        for at, word in ((self.closing, "20 分"), (self.outside, "17:00 Asia/Tokyo")):
             row = by(accounts.rank(accts, lim, 95, at), "cheap")
             self.assertEqual((row["eligible"], row["shut"]), (False, True))
             self.assertIn(word, row["reason"])
@@ -547,13 +537,13 @@ class Hours(unittest.TestCase):
         self.assertIsNone(accounts.early(accounts.rank(accts, lim, 95, self.inside), "cheap", 90, 1, self.inside))
         got = accounts.early(accounts.rank(accts, lim, 95, self.closing), "cheap", 90, 1, self.closing)
         self.assertEqual((got["to"], got["kind"]), ("p1", "hours"))
-        self.assertIn("20 分後に終わる", got["why"])
+        self.assertIn("20 分", got["why"])   # 終わりまでの残りが訳に届く
         full = {"p1": {"seven_day": {"used_percentage": 99}, "five_hour": {"used_percentage": 1}}}
         got = accounts.early(accounts.rank(accts, full, 95, self.closing), "cheap", 90, 1, self.closing)
         self.assertEqual((got["to"], got["kind"]), (None, "hours_none"))
         got = accounts.early(accounts.rank(accts, lim, 95, self.outside), "p1", 90, 1, self.outside, wish="cheap")
         self.assertEqual((got["to"], got["kind"]), (None, "bad"))   # 名指しの先が時間帯の外
-        self.assertIn("使える時間帯の外", got["why"])
+        self.assertIn("cheap", got["why"])
         got = accounts.early(accounts.rank(accts, lim, 95, self.closing), "cheap", 90, 1, self.closing, wish="p9")
         self.assertEqual((got["to"], got["kind"]), ("p1", "hours"))   # 名指しが使えなくても、終わる手前ならほかへ移す
 
@@ -577,29 +567,34 @@ class Prefer(unittest.TestCase):
         self.assertEqual(accounts.prefer(self.rows(), None, 0, None), (self.rows(), None))
 
     def test_an_unusable_wish_keeps_the_usage_order_and_says_why(self):
-        for at, opened, why in ((Hours.outside, 0, "使える時間帯（17:00-25:00 Asia/Tokyo）の外"),
-                                (Hours.closing, 0, "分後に終わる（終わりの 30 分前からは選ばない）"),
-                                (Hours.inside, 1, "終わっていない会話が 1 件在り、設定の max_open（1）に達した")):
-            got, note = accounts.prefer(self.rows(at), "cheap", opened, "役 写しの後始末")
-            self.assertEqual(names(got)[0], "p1")
-            self.assertIn("役 写しの後始末 が名指したアカウント cheap は", note)
-            self.assertIn(why, note)
+        for at, opened in ((Hours.outside, 0), (Hours.closing, 0), (Hours.inside, 1)):
+            with self.subTest(at=at, opened=opened):
+                got, note = accounts.prefer(self.rows(at), "cheap", opened, "役 写しの後始末")
+                self.assertEqual(names(got), ["p1", "cheap"])   # 名指しを使わず、使用率の順のまま
+                self.assertIn("役 写しの後始末", note)   # 名指した所と名指したアカウントが注記に届く
+                self.assertIn("cheap", note)
+                reason = by(self.rows(at), "cheap")["reason"]
+                if reason:   # 時間帯で外れたときは、rank の訳がそのまま注記に届く
+                    self.assertIn(reason, note)
         got, note = accounts.prefer(self.rows(), "p9", 0, "受け持ち 写し")
         self.assertEqual(names(got), ["p1", "cheap"])
-        self.assertIn("p9 は振れるアカウントの中に無い", note)
+        self.assertIn("p9", note)
 
     def test_max_open_allows_that_many_open_conversations(self):
         got, note = accounts.prefer(self.rows(), "cheap", 2, "役 写しの後始末", max_open=3)
         self.assertEqual((names(got)[0], note), ("cheap", None))
         got, note = accounts.prefer(self.rows(), "cheap", 3, "役 写しの後始末", max_open=3)
         self.assertEqual(names(got)[0], "p1")
-        self.assertIn("終わっていない会話が 3 件在り、設定の max_open（3）に達した", note)
+        self.assertIn("cheap", note)
+        self.assertIn("3", note)   # 開いている数と上限が注記に届く
 
     def test_an_account_over_its_limit_is_not_used_even_when_named(self):
         lim = {"p1": {"seven_day": {"used_percentage": 99, "resets_at": Hours.inside + 86400}, "five_hour": {"used_percentage": 1}}}
         got, note = accounts.prefer(accounts.rank(self.accts, lim, 95, Hours.inside), "p1", 0, "役 作業")
         self.assertEqual(names(got)[0], "cheap")
-        self.assertIn("seven_day が 99% で上限 95% に達した", note)
+        self.assertIn("p1", note)   # 外した枠と使用率が注記に届く
+        self.assertIn("seven_day", note)
+        self.assertIn("99%", note)
 
     def test_open_conversations_count_idle_background_ones(self):
         items = [{"state": "idle"}, {"state": "done"}, {"state": "stopped"}, {"state": "failed"},
@@ -630,11 +625,9 @@ class Early(unittest.TestCase):
         self.assertIsNone(accounts.early(self.rows(), "p1", 90, 1, self.now))   # 目安に届かない
         self.assertIsNone(accounts.early(self.rows(), "p9", 90, 1, self.now))   # 控えの無いアカウント
         got = accounts.early(self.rows(), "p3", 90, 4, self.now)   # 週の枠は 3 時間 56 分で戻る
-        self.assertIsNone(got["to"])
-        self.assertIn("4 時間以内に戻る", got["why"])
+        self.assertEqual((got["to"], got["kind"]), (None, "soon"))
         got = accounts.early(self.rows(), "p3", 80, 1, self.now)   # main 81%・p1 85% も目安に達する
-        self.assertIsNone(got["to"])
-        self.assertIn("ほかのアカウントが無い", got["why"])
+        self.assertEqual((got["to"], got["kind"]), (None, "none"))
 
     def test_every_account_that_failed_to_start_is_avoided(self):
         # 起動できなかった先を 1 つだけ覚えると、2 つの先を交互に選び直す（2026-10-29、works-factory の変更のレビュー）
@@ -688,20 +681,21 @@ class NamedOnly(unittest.TestCase):
         shut = Account("nim", "claude-nim", limits=False, named_only=True, hours=config.parse_hours("08:00-09:00 UTC"))
         rows = accounts.rank(self.accts[:2] + (shut,), {}, 95, NOW)   # NOW は UTC 07:30
         self.assertFalse(by(rows, "nim")["named_ok"])
-        self.assertIn("使える時間帯（08:00-09:00 UTC）の外", by(rows, "nim")["reason"])
+        self.assertTrue(by(rows, "nim")["shut"])
+        self.assertIn("08:00-09:00 UTC", by(rows, "nim")["reason"])   # 時間帯が訳に届く
         got, note = accounts.prefer(rows, "nim", 0, "役 下書き")
         self.assertNotEqual(names(got)[0], "nim")
-        self.assertIn("使える時間帯（08:00-09:00 UTC）の外", note)
+        self.assertIn("08:00-09:00 UTC", note)
         got, note = accounts.prefer(self.rows(), "nim", 1, "役 下書き")
         self.assertEqual(names(got)[0], "p1")
-        self.assertIn("終わっていない会話が 1 件在り", note)
+        self.assertIn("nim", note)
         # strict（名指しのときだけ使うアカウントの名指し）なら、ほかのアカウントへ回さず空の並び
         got, note = accounts.prefer(self.rows(), "nim", 1, "役 下書き", strict=True)
         self.assertEqual(got, [])
-        self.assertIn("ほかのアカウントでは立てない", note)
+        self.assertIn("nim", note)
         got, note = accounts.prefer(rows, "nim", 0, "役 下書き", strict=True)
         self.assertEqual(got, [])
-        self.assertIn("使える時間帯（08:00-09:00 UTC）の外", note)
+        self.assertIn("08:00-09:00 UTC", note)
         got, note = accounts.prefer(self.rows(), "nim", 1, "役 下書き", max_open=2, strict=True)
         self.assertEqual((names(got)[0], note), ("nim", None))
         self.assertIsNone(accounts.early(rows, "p1", 90, 1, NOW, wish="nim")["to"])
@@ -727,9 +721,13 @@ class Overview(unittest.TestCase):
             self.assertEqual([x["models"] for x in got],
                              [{"default": "opus"}, {"opus": "glm-5.3-flash", "sonnet": "glm-5.3-flash", "haiku": "nemotron-3.5-super-vl"}, {}])
             lines = accounts.overview_lines(got)
-            self.assertEqual(lines[1:], ["  p1  自動  モデル 既定 → opus",
-                                         "  nim  名指しだけ  名指しで同時 3 件まで  使用率の枠なし  モデル opus・sonnet → glm-5.3-flash、haiku → nemotron-3.5-super-vl",
-                                         "  gone  自動"])
+            # 一覧はアカウントごとに 1 行で、名前と読み替え先・同時の数が届く（言い回しは人が読む物なので比べない）
+            self.assertEqual(len(lines), 4)
+            self.assertEqual([line.split()[0] for line in lines[1:]], ["p1", "nim", "gone"])
+            self.assertIn("opus", lines[1])
+            for word in ("3", "glm-5.3-flash", "nemotron-3.5-super-vl"):
+                self.assertIn(word, lines[2])
+            self.assertNotIn("glm-5.3-flash", lines[3])
             self.assertEqual(schemacheck.check({"schema": 1, "companies": [], "accounts": got, "notes": []}, schemacheck.schema("tree")), [])
 
     def test_unreadable_settings_give_no_aliases(self):

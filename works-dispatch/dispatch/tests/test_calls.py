@@ -41,11 +41,16 @@ command = '''{command}'''
 
 class Fields(unittest.TestCase):
     def test_machine_role_tools_need_a_role_to_hand_over_to(self):
+        # 回す役が無い・回す先が機械だけの役のどちらも、ツールを外して、外したツールと鍵の名前を注記に出す
         got = role.load("/c.toml", shape_text("true", fallback=""))
         self.assertEqual(got["roles"]["配布"]["tools"], [])
-        self.assertIn("回す役（fallback_role）が無いので外す", got["problems"][0])
+        self.assertEqual(len(got["problems"]), 1)
+        self.assertIn("spread-plugins", got["problems"][0])
+        self.assertIn("fallback_role", got["problems"][0])
         got = role.load("/c.toml", shape_text("true", fallback='fallback_role = "配布"'))
-        self.assertIn("機械だけの役（AI の部署を持たない）ので外す", got["problems"][0])
+        self.assertEqual(got["roles"]["配布"]["tools"], [])
+        self.assertEqual(len(got["problems"]), 1)
+        self.assertIn("spread-plugins", got["problems"][0])
 
     def test_fallback_defaults_to_the_owning_role(self):
         got = role.load("/c.toml", shape_text("true", fallback="", machine=""))
@@ -56,16 +61,40 @@ class Fields(unittest.TestCase):
         duty = '\n[[roles]]\nname = "担当"\n[[skills]]\nname = "点検"\nrole = "{}"\n'
         got = role.load("/c.toml", shape_text("true", fallback='fallback_role = "点検"') + duty.format("担当"))
         self.assertEqual((got["problems"], got["roles"]["配布"]["tools"][0]["fallback_role"]), ([], "点検"))
-        got = role.load("/c.toml", shape_text("true", fallback='fallback_role = "点検"') + duty.format("配布"))
-        self.assertIn("回す先 点検 が受け持ち 点検 の役が機械だけの役（AI の部署を持たない）ので外す", got["problems"][0])
-        got = role.load("/c.toml", shape_text("true", fallback='fallback_role = "見張り"') + duty.format("担当"))
-        self.assertIn("回す先 見張り が会社の形の役にも受け持ちにも無いので外す", got["problems"][0])
-        got = role.load("/c.toml", shape_text("true", fallback='fallback_role = "点検"') + '\n[[skills]]\nname = "点検"\n')
-        self.assertIn("回す先 点検 が受け持ち 点検 の役が無いので外す", got["problems"][0])
+        # 回す先の受け持ちの役が機械だけ・回す先がどこにも無い・回す先の受け持ちに役が無い: どれもツールを外し、回す先の名前を注記に出す
+        for fallback, tail in (("点検", duty.format("配布")), ("見張り", duty.format("担当")), ("点検", '\n[[skills]]\nname = "点検"\n')):
+            with self.subTest(fallback=fallback, tail=tail):
+                got = role.load("/c.toml", shape_text("true", fallback=f'fallback_role = "{fallback}"') + tail)
+                self.assertEqual(got["roles"]["配布"]["tools"], [])
+                self.assertEqual(len(got["problems"]), 1, got["problems"])
+                self.assertIn("spread-plugins", got["problems"][0])
+                self.assertIn(f"回す先 {fallback} ", got["problems"][0])
 
     def test_tool_fields_follow_the_mcp_tool(self):
-        bad = role.load("/c.toml", '[[roles]]\nname = "r"\n[[roles.tools]]\nname = "a b"\ninputSchema = { type = "string" }\n')
-        self.assertIn("name（英数字・_・-・. の 1〜128 字）, inputSchema（ルートに type = \"object\" の表）, command", bad["problems"][0])
+        # MCP の Tool の決まり: name は英数字・_・-・. の 1〜128 字、inputSchema はルートに type = "object" の表。command は空でない字
+        good_schema, bad_schema = '{ type = "object" }', '{ type = "string" }'
+        cases = [
+            # (name の行, inputSchema, command の行, 外れる鍵の並び)
+            ('name = "a b"', bad_schema, "", ["name", "inputSchema", "command"]),
+            ('name = "a b"', good_schema, 'command = "true"', ["name"]),
+            ('name = ""', good_schema, 'command = "true"', ["name"]),
+            (f'name = "{"a" * 129}"', good_schema, 'command = "true"', ["name"]),
+            (f'name = "{"a" * 128}"', good_schema, 'command = "true"', []),
+            ('name = "Spread_Plugins.v2-x"', good_schema, 'command = "true"', []),
+            ('name = "ok"', bad_schema, 'command = "true"', ["inputSchema"]),
+            ('name = "ok"', good_schema, "", ["command"]),
+        ]
+        for name, schema, command, want in cases:
+            with self.subTest(name=name[:20], schema=schema, command=command):
+                got = role.load("/c.toml", f'[[roles]]\nname = "r"\n[[roles.tools]]\n{name}\ninputSchema = {schema}\n{command}\n')
+                tools_ = got["roles"]["r"]["tools"]
+                if not want:
+                    self.assertEqual((got["problems"], len(tools_)), ([], 1))
+                    continue
+                self.assertEqual(tools_, [])
+                self.assertEqual(len(got["problems"]), 1, got["problems"])
+                fields = got["problems"][0].rpartition(": ")[2].split(", ")
+                self.assertEqual([f.split("（")[0] for f in fields], want)   # 注記は外れた鍵の名前を並べる
 
     def test_input_is_checked_only_for_shape(self):
         schema = {"type": "object", "required": ["n"], "properties": {"n": {"type": "integer"}, "s": {"type": ["string", "null"]}},

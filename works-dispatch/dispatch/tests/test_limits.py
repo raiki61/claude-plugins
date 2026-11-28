@@ -55,32 +55,36 @@ class Headers(unittest.TestCase):
 
 
 class NeedProbe(unittest.TestCase):
-    def test_missing_or_partial_snapshot_needs_probe(self):
-        self.assertTrue(limits.need_probe(None, NOW))
-        self.assertTrue(limits.need_probe({"five_hour": win(1, NOW + 60), "seven_day": None}, NOW))
+    # 取り直しの決まり: 控えが無い・週の枠が欠けた・切り替わりが過ぎた・古い（5 時間の枠は 60 分、週の枠は 15 分より古い）なら取り直す。
+    # 100% の枠がある間は値が動かないので取り直さない。5 時間の枠の無い（null の）控えは週の枠の古さだけで決める
+    MIN = 60
+    CASES = [
+        # (名前, 控え, 取り直すか)
+        ("控えが無い", None, True),
+        ("週の枠が欠けた", {"five_hour": win(1, NOW + 60), "seven_day": None}, True),
+        ("5 時間の枠の切り替わりが過ぎた", {"five_hour": win(1, NOW - 1), "seven_day": win(1, NOW + 60)}, True),
+        ("どちらも新しい", {"five_hour": win(1, NOW + 60), "seven_day": win(1, NOW + 60)}, False),
+        ("どちらも 20 分前", {"five_hour": win(1, NOW + 9999, NOW - 20 * MIN), "seven_day": win(1, NOW + 9999, NOW - 20 * MIN)},
+         True),
+        ("5 時間の枠だけ 20 分前（週の枠より遅く取り直す）",
+         {"five_hour": win(1, NOW + 9999, NOW - 20 * MIN), "seven_day": win(1, NOW + 9999)}, False),
+        ("5 時間の枠がちょうど 60 分前", {"five_hour": win(1, NOW + 9999, NOW - 60 * MIN), "seven_day": win(1, NOW + 9999)}, False),
+        ("5 時間の枠だけ 60 分より古い", {"five_hour": win(1, NOW + 9999, NOW - 60 * MIN - 1), "seven_day": win(1, NOW + 9999)},
+         True),
+        ("週の枠がちょうど 15 分前", {"five_hour": win(1, NOW + 9999), "seven_day": win(1, NOW + 9999, NOW - 15 * MIN)}, False),
+        ("週の枠だけ 15 分より古い", {"five_hour": win(1, NOW + 9999), "seven_day": win(1, NOW + 9999, NOW - 15 * MIN - 1)}, True),
+        ("5 時間の枠の無い控えで週の枠が 1 分前", {"five_hour": None, "seven_day": win(28, NOW + 9999, NOW - 60)}, False),
+        ("5 時間の枠の無い控えで週の枠が 20 分前", {"five_hour": None, "seven_day": win(28, NOW + 9999, NOW - 20 * MIN)}, True),
+        ("5 時間の枠の無い控えで週の切り替わりが過ぎた", {"five_hour": None, "seven_day": win(28, NOW - 1, NOW - 60)}, True),
+        ("5 時間の枠の無い控えで週の枠が 100% のまま古い", {"five_hour": None, "seven_day": win(100, NOW + 600, NOW - 9999)}, False),
+        ("5 時間の枠が 100% のまま古い", {"five_hour": win(100, NOW + 600, NOW - 9999), "seven_day": win(50, NOW + 9999, NOW - 9999)},
+         False),
+    ]
 
-    def test_passed_reset_needs_probe(self):
-        self.assertTrue(limits.need_probe({"five_hour": win(1, NOW - 1), "seven_day": win(1, NOW + 60)}, NOW))
-
-    def test_fresh_snapshot_does_not(self):
-        self.assertFalse(limits.need_probe({"five_hour": win(1, NOW + 60), "seven_day": win(1, NOW + 60)}, NOW))
-
-    def test_stale_seven_day_needs_probe_sooner_than_five_hour(self):
-        snap = {"five_hour": win(1, NOW + 9999, NOW - 20 * 60), "seven_day": win(1, NOW + 9999, NOW - 20 * 60)}
-        self.assertTrue(limits.need_probe(snap, NOW))
-        snap["seven_day"]["updated_at"] = NOW
-        self.assertFalse(limits.need_probe(snap, NOW))
-
-    def test_week_only_snapshot_is_probed_by_the_age_of_its_week(self):
-        # 5 時間の枠の無いアカウントの控え（five_hour が null）は、欠けた控えとして毎回は取り直さない。週の枠の古さで取り直す
-        self.assertFalse(limits.need_probe({"five_hour": None, "seven_day": win(28, NOW + 9999, NOW - 60)}, NOW))
-        self.assertTrue(limits.need_probe({"five_hour": None, "seven_day": win(28, NOW + 9999, NOW - 20 * 60)}, NOW))
-        self.assertTrue(limits.need_probe({"five_hour": None, "seven_day": win(28, NOW - 1, NOW - 60)}, NOW))
-        self.assertFalse(limits.need_probe({"five_hour": None, "seven_day": win(100, NOW + 600, NOW - 9999)}, NOW))
-
-    def test_full_window_is_not_probed_while_it_lasts(self):
-        snap = {"five_hour": win(100, NOW + 600, NOW - 9999), "seven_day": win(50, NOW + 9999, NOW - 9999)}
-        self.assertFalse(limits.need_probe(snap, NOW))
+    def test_cases_from_the_table(self):
+        for name, snap, want in self.CASES:
+            with self.subTest(name):
+                self.assertIs(limits.need_probe(snap, NOW), want)
 
 
 class Render(unittest.TestCase):
@@ -151,16 +155,15 @@ class ProbeAll(unittest.TestCase):
                          token=token or (lambda user_config, explicit: (f"tok-{explicit or user_config}", "keychain")), fetch=fake_fetch)
         return asked
 
-    def test_seven_accounts_are_all_probed_and_written(self):
-        asked = self.run_probe(accounts(7))
-        self.assertEqual(len(asked), 7)
-        for i in range(7):
-            snap = json.loads((self.dir / f"a{i}.json").read_text())
-            self.assertEqual(snap["five_hour"]["used_percentage"], 38.0)
-
-    def test_one_account_works_the_same(self):
-        self.assertEqual(len(self.run_probe(accounts(1))), 1)
-        self.assertTrue((self.dir / "a0.json").is_file())
+    def test_every_account_is_probed_and_written_for_one_or_seven(self):
+        for n in (1, 7):
+            with self.subTest(accounts=n):
+                self.dir = pathlib.Path(scratch())
+                asked = self.run_probe(accounts(n))
+                self.assertEqual(len(asked), n)
+                for i in range(n):
+                    snap = json.loads((self.dir / f"a{i}.json").read_text())
+                    self.assertEqual(snap["five_hour"]["used_percentage"], 38.0)
 
     def test_keychain_service_comes_from_the_config_or_the_shared_rule(self):
         accts = (config.Account("a", "c", "/h/.claude-a", "my-item"), config.Account("b", "c", "/h/.claude-b"))
@@ -468,6 +471,7 @@ class HerdrConfig(unittest.TestCase):
 
     def test_more_than_herdr_allows_is_refused(self):
         # herdr の tab_bar_right は 16 個まで。アカウントの表示と取り直しの 1 個で 15 アカウントまで
+        self.assertEqual(len(limits.herdr_entries(accounts(15), "/p/limits.py", "/l/accounts.json")), 16)
         with self.assertRaises(ValueError):
             limits.herdr_entries(accounts(16), "/p/limits.py", "/l/accounts.json")
 

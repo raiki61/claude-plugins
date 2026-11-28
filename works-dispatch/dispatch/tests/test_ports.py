@@ -164,8 +164,12 @@ class Herdr(unittest.TestCase):
 
     def test_write_commands_accept_empty_output(self):
         # 2026-10-14 に手元の herdr 0.9.3 で見た実物: pane run と workspace close は、成功しても何も出さない
-        herdr.run("wB:p1", "claude-x", runner=Fake((0, "", "")))
-        herdr.close_workspace("wB", runner=Fake((0, "", "")))
+        f = Fake((0, "", ""), (0, "", ""))
+        herdr.run("wB:p1", "claude-x", runner=f)
+        herdr.close_workspace("wB", runner=f)
+        # 閉じるのは渡した作業場（取り違えると別の作業場の会話が消える）
+        self.assertEqual([c[0] for c in f.calls], [["herdr", "pane", "run", "wB:p1", "claude-x"],
+                                                   ["herdr", "workspace", "close", "wB"]])
 
     NOT_FOUND = (1, json.dumps({"id": "x", "error": {"code": "agent_not_found", "message": "agent target p not found"}}), "")
 
@@ -338,7 +342,9 @@ class HerdrWorktree(unittest.TestCase):
 
     def test_workspace_close_now_answers_ok(self):
         # 2026-10-15 の 0.9.3 では workspace close は {"result": {"type": "ok"}} を返した（10-14 は何も出さなかった）
-        herdr.close_workspace("w1D", runner=Fake(ok({"id": "cli:workspace:close", "result": {"type": "ok"}})))
+        f = Fake(ok({"id": "cli:workspace:close", "result": {"type": "ok"}}))
+        herdr.close_workspace("w1D", runner=f)
+        self.assertEqual(f.calls[0][0], ["herdr", "workspace", "close", "w1D"])
 
 
 class Git(unittest.TestCase):
@@ -622,9 +628,10 @@ class Claude(unittest.TestCase):
     def test_already_trusted_clone_writes_nothing(self):
         f = self.trust_world({"/src/r": {"hasTrustDialogAccepted": True},
                               "/src/r-pr-7": {"hasTrustDialogAccepted": True}})
-        before = os.stat(f).st_mtime_ns
+        # 時刻は粗い刻みで付くので、書き直しを見逃さないよう中身の字で比べる（隣の test_untrusted_source_writes_nothing と同じ）
+        before = open(f).read()
         self.assertEqual(claudex.inherit_trust(f, "/src/r", "/src/r-pr-7"), "already")
-        self.assertEqual(os.stat(f).st_mtime_ns, before)
+        self.assertEqual(open(f).read(), before)
 
     @unittest.skipIf(os.name == "nt", "記号のリンクは Windows の外で作る")
     def test_trust_is_found_through_a_different_spelling_of_the_same_folder(self):
@@ -677,6 +684,9 @@ class Claude(unittest.TestCase):
     def test_catchup_command_is_named_after_the_plugin_that_ships_it(self):
         d = self.plugins([("attention@m", "user", "attention", True), ("works@m", "user", "works", False)])
         self.assertEqual(claudex.catchup_commands(d), ["/attention:catchup"])
+        # 名前は記録の鍵（<名前>@<マーケットプレイス>）でなく plugin.json の name から取る
+        d = self.plugins([("attention@m", "user", "notice", True)])
+        self.assertEqual(claudex.catchup_commands(d), ["/notice:catchup"])
 
     def test_catchup_shipped_as_a_skill_is_found(self):
         # attention は 2026-10-18 に /catchup を commands/ から skills/ へ移した。呼び名は同じ /attention:catchup
@@ -684,7 +694,8 @@ class Claude(unittest.TestCase):
         self.assertEqual(claudex.catchup_commands(d), ["/attention:catchup"])
 
     def test_catchup_command_follows_a_renamed_plugin(self):
-        self.assertEqual(claudex.catchup_commands(self.plugins([("watch@m", "user", "watch", True)])), ["/watch:catchup"])
+        # 名を替えたプラグインは、記録の鍵が古い名のまま残り、plugin.json の名前だけが新しい名になる
+        self.assertEqual(claudex.catchup_commands(self.plugins([("attention@m", "user", "watch", True)])), ["/watch:catchup"])
 
     def test_catchup_command_expands_home(self):
         d = self.plugins([("attention@m", "user", "attention", True)])
