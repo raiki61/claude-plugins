@@ -994,8 +994,11 @@ def vacant_desk(dept, pane, dest_inbox=None, place_dir=None):
     seat = f"窓口の席の会話 {a.get('session') or '-'} はもう終わっている"
     take = ("窓に打たずに済ませるなら、頼み元が --take <受付> --ask <会社>/<受ける仕事> で順番待ちの頼みをほかの部署へ回す"
             "（受ける仕事と順番待ちは --tree に出る）")
-    if pane is None or not other:
+    if pane is None:
         return f"{seat}。窓口の窓に会話が居ないので、本社で会話を起動して --desk で席に付くまで渡らない。{take}"
+    if not other:
+        return (f"{seat}。窓 {pane} の会話を特定できない（herdr が会話の id を出していない）。その会話が --desk で席に付くまで"
+                f"渡らない。{take}")
     if dest_inbox and place_dir and wake.vacant_watcher(dest_inbox, place_dir) == other:
         return (f"{seat}。窓 {pane} の会話 {other} は席に付いていないが、席が空いたときの待ち受けがその会話を再開させ、窓口宛ての物が"
                 "届いたことと --desk で席に付く手を知らせる（その会話が --desk を打てば、そのターンの終わりの待ち受けが渡す）")
@@ -1896,7 +1899,7 @@ def say(a, ports, cwd):
         if heard:
             how = "待ち受けが渡す"
         elif dept.get("head_office"):
-            how = "窓口の会話の次のターンの終わりに張られる待ち受けが渡す"
+            how = vacant_desk(dept, pane, dest_inbox, place_dir) or "窓口の会話の次のターンの終わりに張られる待ち受けが渡す"
         elif pane is None:
             how = "窓に会話が居ないので、" + ("その場所で次に始まる会話の始まりに待ち受けが渡す" if plain
                                           else "attach で戻した会話の始まりに待ち受けが渡す")

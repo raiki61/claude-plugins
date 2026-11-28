@@ -426,7 +426,8 @@ def lines(companies):
             fields += [f"役 {d['role'] or '-'}" + (f"（{role.seat_label(d['seat'])}）" if d.get("seat") else ""), f"アカウント {d['account'] or '-'}", f"頼み元 {d['boss'] or '-'}",
                        f"窓 {'あり' if d['panes'] else 'なし'}" + (away_note(d) if d.get("talk_away") else "")]
             if d.get("queue"):
-                stuck = ("渡す待ち受けが居ない" + ("（窓口の席の会話がもう居ない。窓の会話が --desk で席に付くまで渡らない）"
+                stuck = ("渡す待ち受けが居ない" + ("（窓口の席の会話がもう居ない。窓の会話が --desk で席に付くまで渡らない"
+                                                  + ("。受けたままの頼みも持っている）" if d.get("holder_gone") else "）")
                                                   if d.get("seat_vacant") else
                                                   "（受けたままの頼みを持つ会話がもう居ない）" if d.get("holder_gone") else "")
                          if d.get("stalled") else WAIT_BLOCKS.format(*d["wait_blocks"]) if d.get("wait_blocks") else

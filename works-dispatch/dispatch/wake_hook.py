@@ -221,9 +221,14 @@ def watch_vacant(got, err, h=term, me=lambda: chat.host()[0], attrs_of=_attrs, n
     token = wake.new_token()
     kept = wake.read_vacant(inbox, place)
     mine_ = kept if kept.get("session") == got["session"] else {}
+    # 初めての会話は、席の待ち受けが読んだ所から読む（席の会話が終わってからこの会話が張るまでに届いた知らせも知らせる）
+    seat_pos = wake.read_pos(inbox, place)
     state = {"token": token, "session": got["session"], "owner": got["owner"], "pid": os.getpid(), "since": now(),
-             "pos": mine_.get("pos", wake._size(log)), "told": list(mine_.get("told") or [])}
-    wake.write_vacant(inbox, place, state)
+             "pos": mine_.get("pos", wake._size(log) if seat_pos is None else seat_pos), "told": list(mine_.get("told") or [])}
+    try:
+        wake.write_vacant(inbox, place, state)
+    except OSError:
+        return 0   # 控えを書けない（ディスクが一杯など）と、同じ受付を何度も知らせうるので張らない
     beat = now()
     while True:
         if (wake.read_vacant(inbox, place) or {}).get("token") != token or parent() != got["owner"]:
@@ -240,9 +245,18 @@ def watch_vacant(got, err, h=term, me=lambda: chat.host()[0], attrs_of=_attrs, n
             records, state["pos"], _ = wake.read_new(log, pos)
             ids += [r["id"] for r in records if wake.mine(r, got["names"]) and r.get("id")]
         new = [i for i in dict.fromkeys(ids) if i not in state["told"]]
+        if new:
+            try:
+                if attrs_of(got["cwd"]).get("session") != got["seat"]:
+                    return 0   # ターンの途中に席に会話が付いた（BEAT より前）。付いた会話の待ち受けが渡す
+            except (gitx.GitError, OSError):
+                pass   # 属性を読めない回は席が替わったか分からないので、知らせる側に倒す
         state["told"] += new
         if new or state["pos"] != pos:
-            wake.write_vacant(inbox, place, state)
+            try:
+                wake.write_vacant(inbox, place, state)
+            except OSError:
+                return 0   # 知らせた受付を残せないと、次の待ち受けが同じ受付をまた知らせるので、知らせずに抜ける
         if new:
             err.write(VACANT_NOTE.format(company=got["company"], desk=got["desk"], seat=got["seat"], ids=", ".join(new),
                                          queued=len(wake.queued(inbox, place)), run=RUN) + "\n")
@@ -1392,7 +1406,10 @@ def pause_here(payload):
         vacant = vacant_plan(payload)
         kept = wake.read_vacant(vacant["inbox"], vacant["place"]) if vacant else {}
         if kept.get("session") == payload.get("session_id") and kept.get("token") != "paused":
-            wake.write_vacant(vacant["inbox"], vacant["place"], {**kept, "token": "paused"})
+            try:
+                wake.write_vacant(vacant["inbox"], vacant["place"], {**kept, "token": "paused"})
+            except OSError as e:
+                print(f"works-dispatch: 席の空いた本社の待ち受けを止められなかった（{e}）", file=sys.stderr)
         return 0
     held = wake.read_mark(got["inbox"], got["place"])
     if held and held.get("session") == got["session"]:

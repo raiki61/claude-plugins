@@ -293,6 +293,7 @@ class Watch(unittest.TestCase):
         self.assertIn("--take <受付> --ask <会社>/<受ける仕事>", said)
         self.assertNotIn("次のターンの終わりに張られる", said)
         self.assertIn("本社で会話を起動して --desk で席に付くまで渡らない", orders.vacant_desk(office, None, self.inbox, self.place))
+        self.assertIn("窓 w1:p1 の会話を特定できない", orders.vacant_desk({**office, "panes": [{"pane_id": "w1:p1"}]}, "w1:p1"))
         wake.write_vacant(self.inbox, self.place, {"token": "t", "session": "s2", "pid": os.getpid(), "since": time.time()})
         self.assertIn("席が空いたときの待ち受けがその会話を再開させ", orders.vacant_desk(office, "w1:p1", self.inbox, self.place))
         wake.write_vacant(self.inbox, self.place, {"token": "paused", "session": "s2", "pid": os.getpid(), "since": time.time()})
