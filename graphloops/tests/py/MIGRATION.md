@@ -391,92 +391,92 @@ pytest の置き場の件数: conftest.py の EXPECTED_ITEMS 1840 → 1878（変
 
 | 行 | 元の check（説明の頭） | ループ | 移した先 | 通しに残す |
 |---|---|---|---|---|
-| 417 | 人に聞くターンになる |  | test_scenarios_research.py::test_attended_stuck_answer[asks-human] |  |
-| 419 | answer escalate が通る |  | test_scenarios_research.py::test_attended_stuck_answer[escalate-accepted] |  |
-| 421 | 重厚で 3 周目に入る: {st['thickness']} r{st['round']} |  | test_scenarios_research.py::test_attended_stuck_answer[heavy-round-3] |  |
-| 423 | stuck 後の重厚では断面の生成が開く |  | test_scenarios_research.py::test_attended_stuck_answer[generation-opens] |  |
-| 424 | 重厚に上がると cartographer が序盤に出る |  | test_scenarios_research.py::test_attended_stuck_answer[cartographer-early] |  |
+| 421 | 人に聞くターンになる |  | test_scenarios_research.py::test_attended_stuck_answer[asks-human] |  |
+| 423 | answer escalate が通る |  | test_scenarios_research.py::test_attended_stuck_answer[escalate-accepted] |  |
+| 425 | 重厚で 3 周目に入る: {st['thickness']} r{st['round']} |  | test_scenarios_research.py::test_attended_stuck_answer[heavy-round-3] |  |
+| 427 | stuck 後の重厚では断面の生成が開く |  | test_scenarios_research.py::test_attended_stuck_answer[generation-opens] |  |
+| 428 | 重厚に上がると cartographer が序盤に出る |  | test_scenarios_research.py::test_attended_stuck_answer[cartographer-early] |  |
 
 #### simulate.test_gate_arms
 
 | 行 | 元の check（説明の頭） | ループ | 移した先 | 通しに残す |
 |---|---|---|---|---|
-| 1269 | cold_reader が pass しないまま上限で stopped（{sr[:40]}） |  | test_scenarios_research.py::test_gate_arms[coldfail-stops-at-max] |  |
-| 1271 | 何を聞かれて止まったかが記録に残る（{hi[-1].get('kinds') if hi else None}） |  | test_scenarios_research.py::test_gate_arms[asked-kinds-kept] |  |
-| 1272 | 収束を名乗らず、ゲートの周ごとの verdict が残る |  | test_scenarios_research.py::test_gate_arms[gate-verdicts-kept] |  |
-| 1273 | 止まった周は max_rounds（{run.state()['round']}） |  | test_scenarios_research.py::test_gate_arms[stopped-at-max-rounds] |  |
-| 1277 | rederiver の redesign-needed が 2 周解消しないと人に聞く（{last.get('ask',… |  | test_scenarios_research.py::test_gate_arms[rederiver-asks] |  |
+| 1273 | cold_reader が pass しないまま上限で stopped（{sr[:40]}） |  | test_scenarios_research.py::test_gate_arms[coldfail-stops-at-max] |  |
+| 1275 | 何を聞かれて止まったかが記録に残る（{hi[-1].get('kinds') if hi else None}） |  | test_scenarios_research.py::test_gate_arms[asked-kinds-kept] |  |
+| 1276 | 収束を名乗らず、ゲートの周ごとの verdict が残る |  | test_scenarios_research.py::test_gate_arms[gate-verdicts-kept] |  |
+| 1277 | 止まった周は max_rounds（{run.state()['round']}） |  | test_scenarios_research.py::test_gate_arms[stopped-at-max-rounds] |  |
+| 1281 | rederiver の redesign-needed が 2 周解消しないと人に聞く（{last.get('ask',… |  | test_scenarios_research.py::test_gate_arms[rederiver-asks] |  |
 
 #### simulate.test_rejections
 
 | 行 | 元の check（説明の頭） | ループ | 移した先 | 通しに残す |
 |---|---|---|---|---|
-| 453 | research を --document 無しで init すると入口で落ち、要るノードと穴を名指しする（rc={r.… |  | test_rejections_research.py::test_init_without_document_names_the_node_and_hole | 子プロセスとして起動した loop.py init の argv と、入口の拒否が 0 以外の終了コードになること（__main__ の写像） |
-| 455 | 実在しない --document も入口で落ちる |  | test_rejections_research.py::test_init_with_missing_document_fails_at_the_entrance | 子プロセスとして起動した loop.py init の argv と終了コード |
-| 458 | 最初のノードは p0.question（回す側） |  | test_rejections_research.py::test_first_node_is_the_runner_question |  |
-| 460 | 型に合わない返答は exit 1 |  | test_rejections_research.py::test_reply_outside_the_schema_is_rejected |  |
-| 462 | 回す側の降格は exit 1 |  | test_rejections_research.py::test_runner_cannot_lower_the_thickness |  |
-| 464 | 正しい返答は通る |  | test_rejections_research.py::test_correct_reply_is_accepted |  |
-| 466 | 同じノードに 2 回 done は exit 1（回し直しの禁止） |  | test_rejections_research.py::test_second_done_on_the_same_node_is_rejected |  |
-| 468 | optional でないノードは省けない |  | test_rejections_research.py::test_non_optional_node_cannot_be_skipped |  |
-| 471 | 2 波目に P0 の残りと先行起動が並ぶ: {sorted(by)} |  | test_rejections_research.py::test_second_wave_has_the_rest_of_p0_and_early_starts |  |
-| 472 | 調べ役の agent_type は convergence-loops: 接頭 |  | test_rejections_research.py::test_investigator_agent_type_has_the_plugin_prefix |  |
-| 476 | investigator の前後で作業ツリーが変わると exit 1 |  | test_rejections_research.py::test_worktree_change_around_the_investigator_is_rejected |  |
-| 478 | 理由付きなら通る（痕跡が残る） |  | test_rejections_research.py::test_accept_tree_change_with_a_reason_passes |  |
-| 481 | git_mismatches に理由が残る |  | test_rejections_research.py::test_accepted_reason_is_kept_in_git_mismatches |  |
-| 488 | 回す側のノードには文書のパスが渡り、本文は貼られない |  | test_rejections_research.py::test_runner_node_gets_the_document_path_not_its_body |  |
-| 490 | 同じ波の 2 つ目のノード（p0.terms）も本文を貼らない |  | test_rejections_research.py::test_second_runner_node_of_the_wave_does_not_paste_the_body |  |
-| 491 | 前のノードの出力の穴が埋まっている（空でなく値か『無い』の語） |  | test_rejections_research.py::test_holes_from_earlier_outputs_are_filled |  |
-| 504 | クラスタに入れ漏れた主張があると exit 1 |  | test_rejections_research.py::test_claim_left_out_of_every_cluster_is_rejected |  |
-| 507 | claims_submitted は機械が数える |  | test_rejections_research.py::test_claims_submitted_is_counted_by_the_engine |  |
-| 510 | checker はクラスタごとに並ぶ |  | test_rejections_research.py::test_checkers_fan_out_per_cluster |  |
-| 517 | 材料の正本（items/ のファイル）に材料のフィールドが在る（フィールド: {sorted(c1full)}） |  | test_rejections_research.py::test_item_file_keeps_the_material |  |
-| 519 | c1 の材料は字数では上限内・バイトでは超過（{chars} 字）——落ちること自体がバイトで測っている証拠になる |  | test_rejections_research.py::test_fat_material_is_under_the_limit_in_chars_and_over_in_bytes |  |
-| 521 | 太い材料の長いフィールドは instance から落ち、短いフィールド（key）は残る（残った: {sorted(ch[… |  | test_rejections_research.py::test_long_field_of_a_fat_item_is_dropped_from_the_instance |  |
-| 523 | 短い材料は落ちず、落ちたフィールドが無いこともフィールドで言う（空でも書く: {ch['c2'].get('item_o… |  | test_rejections_research.py::test_short_item_keeps_everything_and_says_so |  |
-| 531 | 上限を超える長さの key でも slim_item は key を落とさない（落とした: {fat_omitted}） |  | test_rejections_research.py::test_slim_item_never_drops_the_key |  |
-| 534 | フィールドごとに上限未満でも合計が超えれば大きい順に逃がす（残った: {sorted(many_slim)} / 落とし… |  | test_rejections_research.py::test_slim_item_bounds_the_total |  |
-| 553 | チェックは 6 綴りとも拾う（拾えた: {len(caught)}/6） |  | test_rejections_research.py::test_fence_catches_all_six_spellings |  |
-| 562 | 射程の外（空白入り・変数の鍵・属性・定数の鍵）は拾わない——拾い始めたら名乗りを広げろ: {slipped} |  | test_rejections_research.py::test_fence_does_not_catch_outside_its_reach |  |
-| 563 | 書き手と load_item の中は許す（許しが効いている） |  | test_rejections_research.py::test_fence_allows_the_writer_and_load_item |  |
-| 567 | engine と rules が instance の item を直読みしていない（6 綴りとも。load_item … |  | test_rejections_research.py::test_engine_and_rules_do_not_read_the_instance_item_directly |  |
-| 570 | 大きいフィールド 1 つを落とせば収まる材料は、その 1 つだけが落ちる（落とした: {order_omitted}） |  | test_rejections_research.py::test_slim_item_drops_the_biggest_field_first |  |
-| 573 | checker には他の束の主張も判定も見立ても貼られない |  | test_rejections_research.py::test_checker_prompt_has_no_other_cluster_or_verdicts |  |
-| 581 | 役には束の全員（{want_ids}）が、本文の末尾まで渡る（材料: {got_ids} / 欠けた主張: {missi… |  | test_rejections_research.py::test_checker_prompt_carries_every_claim_of_the_cluster_to_the_end |  |
-| 586 | 役へ渡す schema の断りに、引用符をエスケープしろの 1 行が付く |  | test_rejections_research.py::test_schema_note_tells_the_role_to_escape_quotes |  |
-| 588 | 扇の被覆: 渡した項目に無い id を返すと exit 1（cover の腕） |  | test_rejections_research.py::test_checker_returning_an_id_it_was_not_given_is_rejected |  |
-| 590 | 語彙に無い判定語はノードの schema（検証器の語彙の写し——graphcheck が包含を見る）で exit 1 |  | test_rejections_research.py::test_verdict_outside_the_vocabulary_is_rejected |  |
-| 592 | 判定が欠けた主張は欠けた分だけ出し直す |  | test_rejections_research.py::test_missing_verdicts_are_reissued |  |
-| 594 | 済んだ instance にはもう done できない |  | test_rejections_research.py::test_done_instance_cannot_be_done_again |  |
-| 597 | 欠けた分の checker と、返った分の refuter が同じ波に出る（pipeline）: {ids} |  | test_rejections_research.py::test_reissued_checker_and_refuter_share_a_wave |  |
-| 599 | refuter の upheld と verdict の食い違いは exit 1 |  | test_rejections_research.py::test_refuter_upheld_and_verdict_must_agree |  |
-| 601 | 相違に correction が無いと exit 1（検証器の規則を先取り） |  | test_rejections_research.py::test_discrepancy_without_correction_is_rejected |  |
-| 603 | フィールドが揃えば通る |  | test_rejections_research.py::test_complete_discrepancy_is_accepted |  |
-| 607 | patch は痕跡付き |  | test_rejections_research.py::test_patch_leaves_a_trace |  |
-| 617 | check_record は語彙に無い verdict を拒む（{errs[:1]}） |  | test_rejections_research.py::test_check_record_rejects_a_verdict_written_by_patch |  |
+| 457 | research を --document 無しで init すると入口で落ち、要るノードと穴を名指しする（rc={r.… |  | test_rejections_research.py::test_init_without_document_names_the_node_and_hole | 子プロセスとして起動した loop.py init の argv と、入口の拒否が 0 以外の終了コードになること（__main__ の写像） |
+| 459 | 実在しない --document も入口で落ちる |  | test_rejections_research.py::test_init_with_missing_document_fails_at_the_entrance | 子プロセスとして起動した loop.py init の argv と終了コード |
+| 462 | 最初のノードは p0.question（回す側） |  | test_rejections_research.py::test_first_node_is_the_runner_question |  |
+| 464 | 型に合わない返答は exit 1 |  | test_rejections_research.py::test_reply_outside_the_schema_is_rejected |  |
+| 466 | 回す側の降格は exit 1 |  | test_rejections_research.py::test_runner_cannot_lower_the_thickness |  |
+| 468 | 正しい返答は通る |  | test_rejections_research.py::test_correct_reply_is_accepted |  |
+| 470 | 同じノードに 2 回 done は exit 1（回し直しの禁止） |  | test_rejections_research.py::test_second_done_on_the_same_node_is_rejected |  |
+| 472 | optional でないノードは省けない |  | test_rejections_research.py::test_non_optional_node_cannot_be_skipped |  |
+| 475 | 2 波目に P0 の残りと先行起動が並ぶ: {sorted(by)} |  | test_rejections_research.py::test_second_wave_has_the_rest_of_p0_and_early_starts |  |
+| 476 | 調べ役の agent_type は convergence-loops: 接頭 |  | test_rejections_research.py::test_investigator_agent_type_has_the_plugin_prefix |  |
+| 480 | investigator の前後で作業ツリーが変わると exit 1 |  | test_rejections_research.py::test_worktree_change_around_the_investigator_is_rejected |  |
+| 482 | 理由付きなら通る（痕跡が残る） |  | test_rejections_research.py::test_accept_tree_change_with_a_reason_passes |  |
+| 485 | git_mismatches に理由が残る |  | test_rejections_research.py::test_accepted_reason_is_kept_in_git_mismatches |  |
+| 492 | 回す側のノードには文書のパスが渡り、本文は貼られない |  | test_rejections_research.py::test_runner_node_gets_the_document_path_not_its_body |  |
+| 494 | 同じ波の 2 つ目のノード（p0.terms）も本文を貼らない |  | test_rejections_research.py::test_second_runner_node_of_the_wave_does_not_paste_the_body |  |
+| 495 | 前のノードの出力の穴が埋まっている（空でなく値か『無い』の語） |  | test_rejections_research.py::test_holes_from_earlier_outputs_are_filled |  |
+| 508 | クラスタに入れ漏れた主張があると exit 1 |  | test_rejections_research.py::test_claim_left_out_of_every_cluster_is_rejected |  |
+| 511 | claims_submitted は機械が数える |  | test_rejections_research.py::test_claims_submitted_is_counted_by_the_engine |  |
+| 514 | checker はクラスタごとに並ぶ |  | test_rejections_research.py::test_checkers_fan_out_per_cluster |  |
+| 521 | 材料の正本（items/ のファイル）に材料のフィールドが在る（フィールド: {sorted(c1full)}） |  | test_rejections_research.py::test_item_file_keeps_the_material |  |
+| 523 | c1 の材料は字数では上限内・バイトでは超過（{chars} 字）——落ちること自体がバイトで測っている証拠になる |  | test_rejections_research.py::test_fat_material_is_under_the_limit_in_chars_and_over_in_bytes |  |
+| 525 | 太い材料の長いフィールドは instance から落ち、短いフィールド（key）は残る（残った: {sorted(ch[… |  | test_rejections_research.py::test_long_field_of_a_fat_item_is_dropped_from_the_instance |  |
+| 527 | 短い材料は落ちず、落ちたフィールドが無いこともフィールドで言う（空でも書く: {ch['c2'].get('item_o… |  | test_rejections_research.py::test_short_item_keeps_everything_and_says_so |  |
+| 535 | 上限を超える長さの key でも slim_item は key を落とさない（落とした: {fat_omitted}） |  | test_rejections_research.py::test_slim_item_never_drops_the_key |  |
+| 538 | フィールドごとに上限未満でも合計が超えれば大きい順に逃がす（残った: {sorted(many_slim)} / 落とし… |  | test_rejections_research.py::test_slim_item_bounds_the_total |  |
+| 557 | チェックは 6 綴りとも拾う（拾えた: {len(caught)}/6） |  | test_rejections_research.py::test_fence_catches_all_six_spellings |  |
+| 566 | 射程の外（空白入り・変数の鍵・属性・定数の鍵）は拾わない——拾い始めたら名乗りを広げろ: {slipped} |  | test_rejections_research.py::test_fence_does_not_catch_outside_its_reach |  |
+| 567 | 書き手と load_item の中は許す（許しが効いている） |  | test_rejections_research.py::test_fence_allows_the_writer_and_load_item |  |
+| 571 | engine と rules が instance の item を直読みしていない（6 綴りとも。load_item … |  | test_rejections_research.py::test_engine_and_rules_do_not_read_the_instance_item_directly |  |
+| 574 | 大きいフィールド 1 つを落とせば収まる材料は、その 1 つだけが落ちる（落とした: {order_omitted}） |  | test_rejections_research.py::test_slim_item_drops_the_biggest_field_first |  |
+| 577 | checker には他の束の主張も判定も見立ても貼られない |  | test_rejections_research.py::test_checker_prompt_has_no_other_cluster_or_verdicts |  |
+| 585 | 役には束の全員（{want_ids}）が、本文の末尾まで渡る（材料: {got_ids} / 欠けた主張: {missi… |  | test_rejections_research.py::test_checker_prompt_carries_every_claim_of_the_cluster_to_the_end |  |
+| 590 | 役へ渡す schema の断りに、引用符をエスケープしろの 1 行が付く |  | test_rejections_research.py::test_schema_note_tells_the_role_to_escape_quotes |  |
+| 592 | 扇の被覆: 渡した項目に無い id を返すと exit 1（cover の腕） |  | test_rejections_research.py::test_checker_returning_an_id_it_was_not_given_is_rejected |  |
+| 594 | 語彙に無い判定語はノードの schema（検証器の語彙の写し——graphcheck が包含を見る）で exit 1 |  | test_rejections_research.py::test_verdict_outside_the_vocabulary_is_rejected |  |
+| 596 | 判定が欠けた主張は欠けた分だけ出し直す |  | test_rejections_research.py::test_missing_verdicts_are_reissued |  |
+| 598 | 済んだ instance にはもう done できない |  | test_rejections_research.py::test_done_instance_cannot_be_done_again |  |
+| 601 | 欠けた分の checker と、返った分の refuter が同じ波に出る（pipeline）: {ids} |  | test_rejections_research.py::test_reissued_checker_and_refuter_share_a_wave |  |
+| 603 | refuter の upheld と verdict の食い違いは exit 1 |  | test_rejections_research.py::test_refuter_upheld_and_verdict_must_agree |  |
+| 605 | 相違に correction が無いと exit 1（検証器の規則を先取り） |  | test_rejections_research.py::test_discrepancy_without_correction_is_rejected |  |
+| 607 | フィールドが揃えば通る |  | test_rejections_research.py::test_complete_discrepancy_is_accepted |  |
+| 611 | patch は痕跡付き |  | test_rejections_research.py::test_patch_leaves_a_trace |  |
+| 621 | check_record は語彙に無い verdict を拒む（{errs[:1]}） |  | test_rejections_research.py::test_check_record_rejects_a_verdict_written_by_patch |  |
 
 #### simulate.test_stopped_before_gates_reports
 
 | 行 | 元の check（説明の頭） | ループ | 移した先 | 通しに残す |
 |---|---|---|---|---|
-| 2796 | {th}: 上限を 1 周にできる（{r.stderr.strip()[-120:]}） | 型紙 ×2 | test_scenarios_research.py::test_stopped_before_gates_reports[std-max-rounds-1]<br>test_scenarios_research.py::test_stopped_before_gates_reports[heavy-max-rounds-1] |  |
-| 2807 | {th}: 上限で人に聞く（{last.get('ask', {}).get('kinds')}） | 型紙・1 本以上（if の下に在る） | test_scenarios_research.py::test_stopped_before_gates_reports[std-asks-at-max] |  |
-| 2809 | {th}: stop と答えられる | 型紙・1 本以上（if の下に在る） | test_scenarios_research.py::test_stopped_before_gates_reports[std-answer-stop] |  |
-| 2812 | {th}: 止まった run として終わる（{last['status']}） | 型紙 ×2 | test_scenarios_research.py::test_stopped_before_gates_reports[std-ends-stopped]<br>test_scenarios_research.py::test_stopped_before_gates_reports[heavy-ends-stopped] |  |
-| 2813 | {th}: ゲートが走る前に止まっても report.md が出る | 型紙 ×2 | test_scenarios_research.py::test_stopped_before_gates_reports[std-report]<br>test_scenarios_research.py::test_stopped_before_gates_reports[heavy-report] |  |
-| 2815 | {th}: 検証器が止まった記録として通す（exit {v.returncode}: {(v.stdout + v.st… | 型紙 ×2 | test_scenarios_research.py::test_stopped_before_gates_reports[std-validator-accepts-stopped]<br>test_scenarios_research.py::test_stopped_before_gates_reports[heavy-validator-accepts-stopped] |  |
-| 2819 | {th}: {k} は『飛ばした』と理由つきで残る——{g[k]} | 型紙・1 本以上（条件式の両腕で回数が違う） | test_scenarios_research.py::test_stopped_before_gates_reports[std-cold_reader-not-run]<br>test_scenarios_research.py::test_stopped_before_gates_reports[heavy-cold_reader-not-run]<br>test_scenarios_research.py::test_stopped_before_gates_reports[heavy-cartographer-not-run] |  |
-| 2821 | 標準: cartographer はこの段では走らせない（飛ばしたと名乗らない）——{g['cartographer']… | 型紙・1 本以上（if の下に在る） | test_scenarios_research.py::test_stopped_before_gates_reports[std-cartographer-not-applicable] |  |
-| 2823 | {th}: 突合の前に止まった rederiver は not_run で、暫定の判定は provisional に残る… | 型紙 ×2 | test_scenarios_research.py::test_stopped_before_gates_reports[std-rederiver-provisional]<br>test_scenarios_research.py::test_stopped_before_gates_reports[heavy-rederiver-provisional] |  |
+| 2800 | {th}: 上限を 1 周にできる（{r.stderr.strip()[-120:]}） | 型紙 ×2 | test_scenarios_research.py::test_stopped_before_gates_reports[std-max-rounds-1]<br>test_scenarios_research.py::test_stopped_before_gates_reports[heavy-max-rounds-1] |  |
+| 2811 | {th}: 上限で人に聞く（{last.get('ask', {}).get('kinds')}） | 型紙・1 本以上（if の下に在る） | test_scenarios_research.py::test_stopped_before_gates_reports[std-asks-at-max] |  |
+| 2813 | {th}: stop と答えられる | 型紙・1 本以上（if の下に在る） | test_scenarios_research.py::test_stopped_before_gates_reports[std-answer-stop] |  |
+| 2816 | {th}: 止まった run として終わる（{last['status']}） | 型紙 ×2 | test_scenarios_research.py::test_stopped_before_gates_reports[std-ends-stopped]<br>test_scenarios_research.py::test_stopped_before_gates_reports[heavy-ends-stopped] |  |
+| 2817 | {th}: ゲートが走る前に止まっても report.md が出る | 型紙 ×2 | test_scenarios_research.py::test_stopped_before_gates_reports[std-report]<br>test_scenarios_research.py::test_stopped_before_gates_reports[heavy-report] |  |
+| 2819 | {th}: 検証器が止まった記録として通す（exit {v.returncode}: {(v.stdout + v.st… | 型紙 ×2 | test_scenarios_research.py::test_stopped_before_gates_reports[std-validator-accepts-stopped]<br>test_scenarios_research.py::test_stopped_before_gates_reports[heavy-validator-accepts-stopped] |  |
+| 2823 | {th}: {k} は『飛ばした』と理由つきで残る——{g[k]} | 型紙・1 本以上（条件式の両腕で回数が違う） | test_scenarios_research.py::test_stopped_before_gates_reports[std-cold_reader-not-run]<br>test_scenarios_research.py::test_stopped_before_gates_reports[heavy-cold_reader-not-run]<br>test_scenarios_research.py::test_stopped_before_gates_reports[heavy-cartographer-not-run] |  |
+| 2825 | 標準: cartographer はこの段では走らせない（飛ばしたと名乗らない）——{g['cartographer']… | 型紙・1 本以上（if の下に在る） | test_scenarios_research.py::test_stopped_before_gates_reports[std-cartographer-not-applicable] |  |
+| 2827 | {th}: 突合の前に止まった rederiver は not_run で、暫定の判定は provisional に残る… | 型紙 ×2 | test_scenarios_research.py::test_stopped_before_gates_reports[std-rederiver-provisional]<br>test_scenarios_research.py::test_stopped_before_gates_reports[heavy-rederiver-provisional] |  |
 
 #### simulate.test_unattended_stuck
 
 | 行 | 元の check（説明の頭） | ループ | 移した先 | 通しに残す |
 |---|---|---|---|---|
-| 406 | status が stopped |  | test_scenarios_research.py::test_unattended_stuck[status-stopped] |  |
-| 407 | stopped_reason: {rec['convergence'].get('stopped_reason', ''… |  | test_scenarios_research.py::test_unattended_stuck[stopped-reason-unattended] |  |
-| 408 | 要人間判断に stuck が載る |  | test_scenarios_research.py::test_unattended_stuck[human-items-stuck] |  |
-| 409 | 停止でも報告は出る（検証器は stopped を通す） |  | test_scenarios_research.py::test_unattended_stuck[report-on-stop] |  |
+| 410 | status が stopped |  | test_scenarios_research.py::test_unattended_stuck[status-stopped] |  |
+| 411 | stopped_reason: {rec['convergence'].get('stopped_reason', ''… |  | test_scenarios_research.py::test_unattended_stuck[stopped-reason-unattended] |  |
+| 412 | 要人間判断に stuck が載る |  | test_scenarios_research.py::test_unattended_stuck[human-items-stuck] |  |
+| 413 | 停止でも報告は出る（検証器は stopped を通す） |  | test_scenarios_research.py::test_unattended_stuck[report-on-stop] |  |
 
 #### simulate_review.test_awaiting
 

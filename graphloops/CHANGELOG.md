@@ -6,6 +6,10 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+### Changed
+
+- 試験だけを直した。0.52.1 で台本 `tests/simulate.py` の 62 行目の後に 4 行を足したのに、台本の check と pytest の試験の対応表 `tests/py/MIGRATION.md` の行番号の列を直しておらず、main の CI（run 46120857824）で「対応表が古い」という試験が赤になった。表のうち `simulate.py` の check の行（`simulate.*` の節の 66 行。どれも足した 4 行より後ろに在る）の行番号を 4 ずつ送った。
+
 ## [0.52.1] - 2026-11-28
 
 ### Changed
