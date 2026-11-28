@@ -635,6 +635,78 @@ details.foot ul { margin: 6px 0 0; padding-left: 1.4em; }
 <body>
 <main class="wrap" id="app"><noscript><p>この報告はページの中のスクリプトで描く。Simple HTML Viewer は、既定では信頼したワークスペースでだけスクリプトを動かす（設定 activeContent）。ワークスペースを信頼するか、設定を変えて開き直す。</p></noscript></main>
 <script type="application/json" id="data">/*__DATA__*/null</script>
+<script id="calc">
+"use strict";
+// DOM に触らない計算（数え方・並べ方・置き場所・class の付け方）。下のページのスクリプトがこれを呼び、
+// 試験（tests/page_js.py）はこの塊だけを node で読んで呼ぶ。ここでは document・window・要素に触らない
+const CALC = {
+  // 図の形の候補（向きと並べ方ごと）から 1 つを選ぶ。字が等倍以上で読める形を先に取り、その中で高さが一番低いもの。
+  // どれも縮めないと入らなければ、縮め方が一番小さいもの。高さだけで選ぶと、縮めた形ほど低くなって勝ち、
+  // 横に長い図の字が 9px まで小さくなった（2026-10-16）
+  pickLayout(cands) {
+    const readable = cands.filter(c => c.zoom >= 1 && c.cost < 1e6);
+    return readable.length ? readable.reduce((a, b) => (b.cost < a.cost ? b : a))
+      : cands.reduce((a, b) => (b.zoom > a.zoom || (b.zoom === a.zoom && b.cost < a.cost) ? b : a));
+  },
+  // 押した所の横の札の置き場所（画面の中の座標）。押した所の右に置き、入らなければ左、それも無理なら下。
+  // 画面の外へははみ出さない。r は押した所の矩形（left・right・top・bottom）、w・h は札の大きさ、vw・vh は画面の大きさ
+  popPlace(r, w, h, vw, vh) {
+    const gap = 10;
+    let x = r.right + gap;
+    if (x + w > vw - 8) x = r.left - gap - w;
+    if (x < 8) x = Math.max(8, Math.min(vw - w - 8, r.left));
+    let y = x === r.right + gap || x === r.left - gap - w ? r.top : r.bottom + gap;
+    y = Math.max(8, Math.min(y, vh - h - 8));
+    return { x, y };
+  },
+  // 同じ所をもう一度押したか。押した所（要素）で比べる。題で比べると、同じ言葉の別の線・箱（「呼ぶ」が 2 本など）で開かずに閉じる
+  isAgain(pop, anchorEl) { return !!pop && pop.anchor === anchorEl; },
+  // 差分の file の箱（名前の並び）と v.files を組む。両方とも同じ diff の同じ順（v.files は parse_diff）なので、数が合えば順で組む。
+  // 名前の後ろ一致で組むと、package.json が packages/web/package.json の箱を取り、同じ階層の改名（src/{a.py → b.py}）は
+  // どれにも当たらない。数が合わないときだけ、後ろ一致の一番長いもの。当たらなければ null
+  pairFiles(names, files) {
+    const named = name => files.filter(x => name.endsWith(x.path)).sort((a, b) => b.path.length - a.path.length)[0];
+    return names.map((name, i) => (names.length === files.length ? files[i] : named(name)) || null);
+  },
+  // 出来事を、続けて動いた同じ人ごとに塊にする（20 分以内）。担当の付け替えはターンを動かさないので入れない。
+  // author は PR の作者（作者のスレッドは「返信」、ほかの人のは「指摘」と数える）
+  groupEvents(evs, author) {
+    const groups = [];
+    for (const e of evs.filter(e => !/^担当/.test(e.kind))) {
+      const g = groups[groups.length - 1];
+      if (g && g.who === e.who && e.min - g.lastMin <= 20) { g.items.push(e); g.last = e.when; g.lastMin = e.min; }
+      else groups.push({ who: e.who, first: e.when, last: e.when, lastMin: e.min, items: [e] });
+    }
+    for (const g of groups) {
+      const push = g.items.filter(e => e.cat === "push");
+      const th = g.items.filter(e => /^スレッド/.test(e.kind)).length;
+      const com = g.items.filter(e => e.kind === "コメント").length;
+      const rest = [...new Set(g.items.filter(e => e.cat !== "push" && !/^スレッド/.test(e.kind) && e.kind !== "コメント").map(e => e.kind))];
+      const parts = [push.length ? `push ${push[push.length - 1].sha}${push.length > 1 ? ` ほか ${push.length - 1}` : ""}` : null,
+        th ? (g.who === author ? `${th} 件に返信` : `${th} 件に指摘`) : null, com ? (com > 1 ? `コメント ${com}` : "コメント") : null, ...rest];
+      g.label = parts.filter(Boolean).join(" · ");
+    }
+    return groups;
+  },
+  // 出来事の記録の行（時刻・誰・何）。新しい方の cap 個だけを並べ、省いた数を cut に返す。me は私の行（色を変える）
+  eventRows(groups, cap) {
+    const day = s => String(s || "").replace(/^(\d{2})-(\d{2}) /, "$1/$2 ");
+    const rows = groups.slice(-cap).map(g => ({ when: g.first === g.last ? day(g.first) : `${day(g.first)}–${day(g.last).slice(-5)}`,
+      who: g.who, label: g.label, me: g.who === "私" }));
+    return { rows, cut: groups.length - rows.length };
+  },
+  // スレッドの発言の並び。発言は GitHub と同じく古い順。私が返すターンか、持ち主の側の人が最後に返しているか、
+  // 私でない人が返すターン（人の最後の発言が私でない）なら私が先、ほかの相手のターンなら私が後（私が最後に発言している）
+  threadOrder(th) { return th.my_turn || th.side_last || (th.owes && th.owes.length) ? "mine-first" : "theirs-first"; },
+  // スレッドの見出しのターンの印。端末の thread_where と同じ言葉。severe は私が返すターン（赤の印）
+  threadTurnLabel(th) {
+    if (th.my_turn) return { text: "私が返すターン", severe: true };
+    return { text: th.side_last ? `持ち主の側の ${th.side_last} が最後に返している（相手のターン）`
+      : th.owes && th.owes.length ? `${th.owes.join(", ")} が返すターン（相手のターン）`
+      : th.mine ? "私が最後に発言している（相手のターン）" : "私は入っていない（他の人同士の会話）", severe: false };
+  },
+};
+</script>
 <script>
 "use strict";
 // 下に埋め込んだ highlight.js と diff2html を読み終えてから組む。
@@ -826,36 +898,16 @@ const turnBox = el("section", { class: "sec", id: "now" }, el("div", { class: "s
 
 // ── 前回から: 出来事を、続けて動いた同じ人ごとに塊にする ──
 const TL_CAP = 12;  // 出来事の記録に並べる塊の数。古い方は省いて数を書く
-function groupEvents() {
-  // 担当の付け替えはターンを動かさないので図に入れない
-  const evs = [...(M.anchor === "mine" && M.mine ? [M.mine] : []), ...(M.events || [])].filter(e => !/^担当/.test(e.kind));
-  const groups = [];
-  for (const e of evs) {
-    const g = groups[groups.length - 1];
-    if (g && g.who === e.who && e.min - g.lastMin <= 20) { g.items.push(e); g.last = e.when; g.lastMin = e.min; }
-    else groups.push({ who: e.who, first: e.when, last: e.when, lastMin: e.min, items: [e] });
-  }
-  for (const g of groups) {
-    const push = g.items.filter(e => e.cat === "push");
-    const th = g.items.filter(e => /^スレッド/.test(e.kind)).length;
-    const com = g.items.filter(e => e.kind === "コメント").length;
-    const rest = [...new Set(g.items.filter(e => e.cat !== "push" && !/^スレッド/.test(e.kind) && e.kind !== "コメント").map(e => e.kind))];
-    const parts = [push.length ? `push ${push[push.length - 1].sha}${push.length > 1 ? ` ほか ${push.length - 1}` : ""}` : null,
-      th ? (g.who === H.author ? `${th} 件に返信` : `${th} 件に指摘`) : null, com ? (com > 1 ? `コメント ${com}` : "コメント") : null, ...rest];
-    g.label = parts.filter(Boolean).join(" · ");
-  }
-  return groups;
-}
+// 担当の付け替えを除くのと、塊の作り方は CALC.groupEvents
+const groupEvents = () => CALC.groupEvents([...(M.anchor === "mine" && M.mine ? [M.mine] : []), ...(M.events || [])], H.author);
 // 前回からの出来事を、時刻・誰・何の 1 行ずつに（畳んで置く。経緯は where の文で読む）
 function eventLog() {
   const all = groupEvents();
   if (!all.length) return null;
-  const day = s => String(s || "").replace(/^(\d{2})-(\d{2}) /, "$1/$2 ");
-  const rows = all.slice(-TL_CAP), cut = all.length - rows.length;
+  const { rows, cut } = CALC.eventRows(all, TL_CAP);
   return el("details", { class: "evlog" }, el("summary", {}, `出来事を時刻の順に見る（${all.length} 件${cut ? `。古い ${cut} 件は省いた` : ""}）`),
-    el("ol", {}, rows.map(g => el("li", { class: g.who === "私" ? "me" : null },
-      el("span", { class: "t" }, g.first === g.last ? day(g.first) : `${day(g.first)}–${day(g.last).slice(-5)}`),
-      el("b", {}, g.who), el("span", {}, rich(g.label))))));
+    el("ol", {}, rows.map(r => el("li", { class: r.me ? "me" : null },
+      el("span", { class: "t" }, r.when), el("b", {}, r.who), el("span", {}, rich(r.label))))));
 }
 
 // ── この PR がすること ──
@@ -1016,11 +1068,8 @@ function graphFigure(F) {
       cands.push({ g: lg, side: true, zoom: zl, cost: (h * zl + (need * zl > room + 1 ? 1e6 : 0)) * (k ? 1.25 : 1) });
     }
   });
-  // 字が等倍以上で読める形を先に取り、その中で高さが一番低いものを選ぶ。どれも縮めないと入らなければ、縮め方が一番小さいもの。
-  // 高さだけで選ぶと、縮めた形ほど低くなって勝ち、横に長い図の字が 9px まで小さくなった（2026-10-16）
-  const readable = cands.filter(c => c.zoom >= 1 && c.cost < 1e6);
-  const best = readable.length ? readable.reduce((a, b) => (b.cost < a.cost ? b : a))
-    : cands.reduce((a, b) => (b.zoom > a.zoom || (b.zoom === a.zoom && b.cost < a.cost) ? b : a));
+  // 字が等倍以上で読める形を先に取る（選び方は CALC.pickLayout）
+  const best = CALC.pickLayout(cands);
   const g = best.g, zoom = best.zoom, side = best.side;
   const gw = Math.ceil(g.graph().width), gh = Math.ceil(g.graph().height);
   const curve = pts => pts.map((p, i) => {
@@ -1180,7 +1229,7 @@ document.addEventListener("keydown", e => { if (e.key === "Escape") closePop(); 
 document.addEventListener("click", e => { if (pop && !pop.contains(e.target) && !e.target.closest(".hit")) closePop(); });
 function showPop(anchorEl, title, pts, own, ownLabel) {
   // 同じ所をもう一度押したら閉じるだけ。題で比べると、同じ言葉の別の線・箱（「呼ぶ」が 2 本など）で開かずに閉じる
-  const again = pop && pop.anchor === anchorEl;
+  const again = CALC.isAgain(pop, anchorEl);
   closePop();
   if (again) return;
   anchorEl.classList.add("pop-on");
@@ -1202,13 +1251,8 @@ function showPop(anchorEl, title, pts, own, ownLabel) {
     items);
   pop.anchor = anchorEl;
   document.body.append(pop);
-  // 押した所の右に置き、入らなければ左、それも無理なら下。画面の外へははみ出さない
-  const r = anchorEl.getBoundingClientRect(), w = pop.offsetWidth, h = pop.offsetHeight, gap = 10;
-  let x = r.right + gap;
-  if (x + w > innerWidth - 8) x = r.left - gap - w;
-  if (x < 8) x = Math.max(8, Math.min(innerWidth - w - 8, r.left));
-  let y = x === r.right + gap || x === r.left - gap - w ? r.top : r.bottom + gap;
-  y = Math.max(8, Math.min(y, innerHeight - h - 8));
+  // 押した所の右に置き、入らなければ左、それも無理なら下。画面の外へははみ出さない（CALC.popPlace）。ページは動かさない
+  const { x, y } = CALC.popPlace(anchorEl.getBoundingClientRect(), pop.offsetWidth, pop.offsetHeight, innerWidth, innerHeight);
   pop.style.left = `${x + scrollX}px`;
   pop.style.top = `${y + scrollY}px`;
 }
@@ -1428,10 +1472,7 @@ function thread(th, i) {
   const where = [pathEl(th.path, th.line), th.left && th.line ? "（削除された側。base の版の行）" : null].filter(Boolean);
   box.append(el("div", { class: "thread-head" }, th.href ? el("a", { href: th.href, class: "path-link" }, where) : el("span", { class: "path-link" }, where),
     el("span", { class: "right" }, th.outdated ? el("span", { class: "label" }, "行がずれている") : null, status,
-      th.my_turn ? el("span", { class: "label severe" }, "私が返すターン")
-        : el("span", { class: "label" }, th.side_last ? `持ち主の側の ${th.side_last} が最後に返している（相手のターン）`
-          : th.owes && th.owes.length ? `${th.owes.join(", ")} が返すターン（相手のターン）`
-          : th.mine ? "私が最後に発言している（相手のターン）" : "私は入っていない（他の人同士の会話）"))));
+      (turn => el("span", { class: turn.severe ? "label severe" : "label" }, turn.text))(CALC.threadTurnLabel(th)))));
   if (th.excerpt) {
     const ex = drawDiff(el("div", { class: "excerpt" }), th.excerpt);
     // 指摘の行の印は、削除された側への指摘なら base の版の番号（.line-num1）で、ほかは head の版の番号（.line-num2）で探す
@@ -1439,13 +1480,12 @@ function thread(th, i) {
     ex.querySelectorAll("tr").forEach(tr => { const n = tr.querySelector(numCls); if (n && +n.textContent.trim() === th.line) tr.classList.add("is-commented"); });
     box.append(ex);
   }
-  // 発言は GitHub と同じく古い順。私が返すターンか、持ち主の側の人が最後に返しているか、私でない人が返すターン（人の
-  // 最後の発言が私でない）なら私が先、ほかの相手のターンなら私が後（私が最後に発言している）
+  // 発言は GitHub と同じく古い順。私が先か後かは CALC.threadOrder
   const mineEl = th.mine && th.mine.quote ? el("div", { class: "comment" }, avatar("私"),
     el("div", {}, el("div", { class: "c-head" }, el("b", {}, "私"), ` · ${th.mine.when}（冒頭だけ）`), body(th.mine.quote, "c-body clamp"))) : null;
   const theirEl = th.quote ? el("div", { class: "comment" }, avatar(th.who || "?"),
     el("div", {}, el("div", { class: "c-head" }, el("b", {}, th.who), ` · ${th.when}`), body(th.quote))) : null;
-  box.append(...(th.my_turn || th.side_last || (th.owes && th.owes.length) ? [mineEl, theirEl] : [theirEl, mineEl]).filter(Boolean));
+  box.append(...(CALC.threadOrder(th) === "mine-first" ? [mineEl, theirEl] : [theirEl, mineEl]).filter(Boolean));
   const f = th.changed && sinceView ? sinceView.files.find(x => x.path === th.path) : null;
   if (f) box.append(el("div", { class: "after" },
     el("div", { class: "after-head" }, icon("dot"), el("span", {}, "このあと ", el("b", {}, rich(sinceView.label)), " でこの file が変わった"),
@@ -1480,12 +1520,11 @@ if (views.length) {
     noteEl.replaceChildren(...[v.note || null, v.url ? [v.note ? " " : null, el("a", { href: v.url }, "GitHub で開く")] : null].flat().filter(Boolean));
     if (!v.text) return;
     drawDiff(holder, v.text);
-    // file の箱と v.files は同じ diff の同じ順（v.files は parse_diff）なので、数が合えば順で組む。名前の後ろ一致で
-    // 組むと、package.json が packages/web/package.json の箱を取り、同じ階層の改名（src/{a.py → b.py}）はどれにも当たらない
+    // file の箱と v.files は、数が合えば順で組む（組み方は CALC.pairFiles）
     const wrappers = [...holder.querySelectorAll(".d2h-file-wrapper")];
-    const named = name => v.files.filter(x => name.endsWith(x.path)).sort((a, b) => b.path.length - a.path.length)[0];
+    const paired = CALC.pairFiles(wrappers.map(fileName), v.files);
     wrappers.forEach((w, i) => {
-      const f = (wrappers.length === v.files.length ? v.files[i] : named(fileName(w))) || byPath.get(fileName(w));
+      const f = paired[i] || byPath.get(fileName(w));
       const head = w.querySelector(".d2h-file-header");
       if (f) w.id = "file-" + f.anchor;
       head.prepend(el("span", { class: "chev", "aria-hidden": "true" }, "▾"));

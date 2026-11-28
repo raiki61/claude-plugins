@@ -70,6 +70,16 @@ md にするのは観点だけ。持ち主が資産として直す文で、訳�
 
 作った関数は、`vars:` の値が渡されないか型が違うと、文を作らずに例外を投げる（`undefined` の字をエージェントに渡さない）。
 
+## dig-world の指示文（world/）
+
+`attention/workflows/dig-world.js`（/attention:check-world が起動する、頼みの手段をほかのやり方と比べる Workflow の script）の観点の文も、同じ形で `attention/prompts/world/` に置く。書き方・止まる物・訳の決まりは上と同じで、生成器は `world/` の md から作った関数を dig-world.js の区画（`// ==== world prompts ====` から `// ==== end of world prompts ====` まで）に書き戻す。LENSES は入れない。
+
+- `LEAK_PROMPT.md`: 段「言い直しの漏れ」。言い直した問題の種類が、頼みの選んだ手段を前提にしていないかを見る。
+- `COMPARE_PROMPT.md`: 段「比べる」。頼みの手段と相手の行のやり方を層ごとに比べる。
+- `LAYER_RULES.md`: 層の決まり。相手の行を探す段（script の SEARCH_PROMPT）と `COMPARE_PROMPT.md` の `{{layers}}` に入る。
+
+並べ方の文（項目 1 つの `leakItem`・頼みの行の `memberLine`・相手の行の `rowLine`）と、頼みを言い直す段・探す段・一般の構造の段の文は、まだ script の中に在る。直した後は `node attention/scripts/gen-prompts.mjs --check` が「prompts: up to date」を出せば揃っている（両方の script と訳を見る）。
+
 ## 写した観点（LENSES）
 
 段の指示文に載せる観点の一部は、別の会社のリポジトリ works-factory の観点（`perspectives/<名>/SKILL.md`）を 1 字も変えずに写した物で、19 本ある。

@@ -27,6 +27,8 @@ for _stream in (sys.stdout, sys.stderr):
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SCRIPTS = ROOT / "attention" / "scripts"
 sys.path.insert(0, str(SCRIPTS / "lib"))
+sys.path.append(str(ROOT / "tests"))
+import page_js  # noqa: E402  雛形のスクリプトを node の偽の DOM で走らせる
 
 
 def load(name, path):
@@ -774,10 +776,15 @@ class GitHubSearch(unittest.TestCase):
 
 
 class CoverageOnThePage(unittest.TestCase):
+    @unittest.skipUnless(page_js.NODE, "node が無い")
     def test_the_template_shows_the_gaps_at_the_top(self):
-        html = (ROOT / "attention" / "templates" / "reflect.html").read_text(encoding="utf-8")
-        self.assertIn("(data.coverage || {}).notes", html)
-        self.assertLess(html.index("(data.coverage || {}).notes"), html.index("// 改善の提案"))
+        # 材料の見た範囲が欠けていれば、改善の提案より前に出す（欠けたまま提案を読ませない）。欠けが無ければ出さない
+        tpl = ROOT / "attention" / "templates" / "reflect.html"
+        fields = {"proposals": [{"title": "提案の題"}]}
+        runs = page_js.render(tpl, "data", {"data": {"coverage": {"notes": ["ログが 3 日分欠けている"]}}, "fields": fields})
+        self.assertLess(runs.index("見た範囲が欠けている"), runs.index("ログが 3 日分欠けている"))
+        self.assertLess(runs.index("ログが 3 日分欠けている"), runs.index("改善の提案"))
+        self.assertNotIn("見た範囲が欠けている", page_js.render(tpl, "data", {"data": {}, "fields": fields}))
 
 
 if __name__ == "__main__":

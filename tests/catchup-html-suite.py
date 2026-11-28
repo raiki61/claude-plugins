@@ -29,6 +29,8 @@ for _stream in (sys.stdout, sys.stderr):
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SCRIPTS = ROOT / "attention" / "scripts"
 sys.path.insert(0, str(SCRIPTS / "lib"))
+sys.path.append(str(ROOT / "tests"))
+import page_js  # noqa: E402  雛形の DOM に触らない計算（<script id="calc">）を node で呼ぶ
 
 
 def load(name, path):
@@ -321,31 +323,60 @@ class FieldsTest(unittest.TestCase):
         self.assertIn("埋め込み: @dagrejs/dagre 3.1.1", page)
         self.assertIn("Copyright (c) 2012-2014 Chris Pettitt", page)
 
+    @unittest.skipUnless(page_js.NODE, "node が無い")
     def test_graph_layout_keeps_text_at_full_size_before_height(self):
         # 高さだけで形を選ぶと、縮めた形ほど低くて勝ち、横に長い図の字が 9px まで小さくなった。
-        # 等倍以上で入る形を先に絞る
-        page = ch.TEMPLATE.read_text(encoding="utf-8")
-        self.assertIn("cands.filter(c => c.zoom >= 1", page)
+        # 等倍以上で入る形を先に絞り、その中で低いもの。窓に入らない形（cost が 1e6 を超える）は読める形に数えない
+        pick = lambda cands: page_js.calc(ch.TEMPLATE, f"CALC.pickLayout({json.dumps(cands)}).id")  # noqa: E731
+        self.assertEqual(pick([{"id": "縮めて低い", "zoom": 0.8, "cost": 100}, {"id": "等倍で高い", "zoom": 1, "cost": 300},
+                               {"id": "等倍でもっと高い", "zoom": 1.2, "cost": 400}, {"id": "入らない", "zoom": 1, "cost": 2e6}]), "等倍で高い")
+        # どれも縮めないと入らなければ、縮め方が一番小さいもの（同じなら低いもの）
+        self.assertEqual(pick([{"id": "a", "zoom": 0.7, "cost": 100}, {"id": "b", "zoom": 0.9, "cost": 500},
+                               {"id": "c", "zoom": 0.9, "cost": 400}]), "c")
+        # 図を描く関数がこの選び方を使う（配線）
+        self.assertIn("CALC.pickLayout(cands)", page_js.body(ch.TEMPLATE, "graphFigure"))
 
+    @unittest.skipUnless(page_js.NODE, "node が無い")
     def test_clicking_a_box_or_line_opens_a_card_beside_it_without_moving_the_page(self):
-        # 凡例の項へ飛ばしたりコードの窓をいきなり開いたりすると、読んでいた所を見失う。押した所の横に札を出し、
-        # コードは札のボタンを押したときだけ開く
-        page = ch.TEMPLATE.read_text(encoding="utf-8")
-        self.assertIn("function showPop(", page)
-        self.assertNotIn("scrollIntoView", page.split("function showPop(")[1].split("\nfunction ")[0])
-        self.assertNotIn("function openPoints(", page)
+        # 凡例の項へ飛ばしたりコードの窓をいきなり開いたりすると、読んでいた所を見失う。押した所の横に札を出す。
+        # 札は今の画面（1000×800）の中に置くので、ページを動かさずに読める
+        place = lambda left, top: page_js.calc(  # noqa: E731
+            ch.TEMPLATE, f"CALC.popPlace({{left: {left}, right: {left + 100}, top: {top}, bottom: {top + 30}}}, 300, 200, 1000, 800)")
+        self.assertEqual(place(100, 50), {"x": 210, "y": 50})    # 右に入れば右の横
+        self.assertEqual(place(800, 50), {"x": 490, "y": 50})    # 右に入らなければ左の横
+        self.assertEqual(place(150, 50), {"x": 260, "y": 50})
+        below = page_js.calc(ch.TEMPLATE, "CALC.popPlace({left: 0, right: 900, top: 50, bottom: 80}, 300, 200, 1000, 800)")
+        self.assertEqual(below, {"x": 8, "y": 90})               # 左右とも入らなければ下
+        for x, y in ((100, 700), (800, -40)):
+            got = place(x, y)
+            self.assertTrue(8 <= got["x"] <= 1000 - 300 - 8 and 8 <= got["y"] <= 800 - 200 - 8, got)
         # もう一度押したかは押した所で比べる。題で比べると、同じ言葉の別の線（「呼ぶ」が 2 本）で開かずに閉じた
-        pop = page.split("function showPop(")[1].split("\nfunction ")[0]
-        self.assertIn("pop.anchor === anchorEl", pop)
-        self.assertNotIn("dataset.for === title", pop)
+        self.assertEqual(page_js.calc(ch.TEMPLATE, """(() => {
+          const a = { title: "呼ぶ" }, b = { title: "呼ぶ" }, pop = { anchor: a, title: "呼ぶ" };
+          return [CALC.isAgain(pop, a), CALC.isAgain(pop, b), CALC.isAgain(null, a)];
+        })()"""), [True, False, False])
+        # 札を出す関数がこの 2 つを使い、ページを動かさない。凡例へ飛ばす関数は無い（配線）
+        pop = page_js.body(ch.TEMPLATE, "showPop")
+        for want in ("CALC.isAgain(pop, anchorEl)", "CALC.popPlace("):
+            self.assertIn(want, pop)
+        self.assertNotIn("scrollIntoView", pop)
+        self.assertNotIn("function openPoints(", ch.TEMPLATE.read_text(encoding="utf-8"))
 
+    @unittest.skipUnless(page_js.NODE, "node が無い")
     def test_file_boxes_pair_with_their_own_counts_by_order(self):
         # 名前の後ろ一致で組むと、package.json が packages/web/package.json の箱を取り（±・GitHub の link・飛び先の
-        # id が別の file の物）、同じ階層の改名（src/{a.py → b.py}）はどれにも当たらなかった
-        page = ch.TEMPLATE.read_text(encoding="utf-8")
-        draw = page.split("const draw = v => {", 1)[1].split("\n  };", 1)[0]
-        self.assertIn("wrappers.length === v.files.length ? v.files[i]", draw)
-        self.assertNotIn("v.files.find(x => fileName(w).endsWith(x.path))", draw)
+        # id が別の file の物）、同じ階層の改名（src/{a.py → b.py}）はどれにも当たらなかった。数が合えば順で組む
+        pair = lambda names, paths: page_js.calc(  # noqa: E731
+            ch.TEMPLATE, f"CALC.pairFiles({json.dumps(names)}, {json.dumps([{'path': p} for p in paths])}).map(f => f && f.path)")
+        paths = ["package.json", "packages/web/package.json", "src/b.py"]
+        self.assertEqual(pair(["packages/web/package.json", "package.json", "src/{a.py → b.py}"],
+                              ["packages/web/package.json", "package.json", "src/b.py"]),
+                         ["packages/web/package.json", "package.json", "src/b.py"])
+        self.assertEqual(pair(["package.json", "packages/web/package.json", "src/{a.py → b.py}"], paths), paths)
+        # 数が合わないときだけ名前で組み、後ろ一致の一番長いものを取る。当たらなければ空（呼ぶ側が path で引き直す）
+        self.assertEqual(pair(["packages/web/package.json", "src/{a.py → b.py}"], paths), ["packages/web/package.json", None])
+        # 差分を描く所がこの組み方を使う（配線）
+        self.assertIn("CALC.pairFiles(wrappers.map(fileName), v.files)", ch.TEMPLATE.read_text(encoding="utf-8"))
 
     def test_several_figures_of_different_kinds_are_numbered_in_errors(self):
         figs = [{"kind": "compare", "rows": [{"name": "待ち", "before": "30 秒", "after": "10 秒"}]},
@@ -535,11 +566,37 @@ class TemplateTest(unittest.TestCase):
         self.assertRegex(self.TPL, r"image\(tok\) \{[^\n]*<a href")
         self.assertNotIn("</script", self.TPL.split("marked 15.0.12 marked.min.js", 1)[1].split("埋め込みここまで", 1)[0])
 
+    @unittest.skipUnless(page_js.NODE, "node が無い")
     def test_turn_history_is_a_folded_log_inside_the_turn_section(self):
-        # ターンの動きは、いまのターンのセクションの中に畳んだ記録として置く（別のセクションの縦の流れは、同じことを文と 2 回言って読みにくかった）
-        self.assertIn('class: "evlog"', self.TPL)
-        self.assertNotIn('class: "timeline"', self.TPL)
-        self.assertNotIn("laneFigure", self.TPL)
+        # ターンの動きは、いまのターンのセクションの中に畳んだ記録として、時刻・誰・何の 1 行ずつで置く（別のセクションの
+        # 縦の流れは、同じことを文と 2 回言って読みにくかった）。続けて動いた同じ人（20 分以内）は 1 行にまとめ、
+        # 担当の付け替えはターンを動かさないので入れない。私の行には印（me）を付ける
+        evs = [{"who": "私", "when": "11-02 10:00", "min": 0, "kind": "コメント"},
+               {"who": "私", "when": "11-02 10:15", "min": 15, "kind": "スレッドに返信"},
+               {"who": "hanako", "when": "11-02 10:20", "min": 20, "kind": "担当を付けた"},
+               {"who": "hanako", "when": "11-02 11:00", "min": 60, "cat": "push", "kind": "push", "sha": "abc1234"},
+               {"who": "hanako", "when": "11-02 11:15", "min": 75, "cat": "push", "kind": "push", "sha": "def5678"},
+               # 同じ人でも 20 分より空けば別の行
+               {"who": "hanako", "when": "11-02 12:00", "min": 120, "kind": "スレッドに指摘"}]
+        rows = lambda cap: page_js.calc(  # noqa: E731
+            ch.TEMPLATE, f"CALC.eventRows(CALC.groupEvents({json.dumps(evs, ensure_ascii=False)}, '私'), {cap})")
+        got = rows(12)
+        self.assertEqual(got["cut"], 0)
+        self.assertEqual([(r["when"], r["who"], r["label"], r["me"]) for r in got["rows"]],
+                         [("11/02 10:00–10:15", "私", "1 件に返信 · コメント", True),
+                          ("11/02 11:00–11:15", "hanako", "push def5678 ほか 1", False),
+                          ("11/02 12:00", "hanako", "1 件に指摘", False)])
+        # 並べるのは新しい方の cap 個まで。古い方は省いて数を返す
+        short = rows(1)
+        self.assertEqual(([r["when"] for r in short["rows"]], short["cut"]), (["11/02 12:00"], 2))
+        # 記録を描く関数がこの数え方を使い、畳んだ記録（evlog）にする。別のセクションの縦の流れ（timeline）は無い（配線）
+        tpl = ch.TEMPLATE.read_text(encoding="utf-8")
+        log = page_js.body(ch.TEMPLATE, "eventLog")
+        for want in ("CALC.eventRows(", 'class: "evlog"'):
+            self.assertIn(want, log)
+        self.assertIn("CALC.groupEvents(", tpl)
+        for gone in ('class: "timeline"', "laneFigure"):
+            self.assertNotIn(gone, tpl)
 
     def test_blocker_chips_keep_their_spacing_and_only_figure_chips_are_tight(self):
         # 図の点の印を詰める規則を .chips だけで書いたら、上部の「マージを止めているもの」の印の間隔も 8px から 4px に
@@ -791,17 +848,28 @@ class PageItemTest(unittest.TestCase):
         self.assertIn('th.left ? ".line-num1" : ".line-num2"', body)
         self.assertIn("（削除された側。base の版の行）", body)  # 端末の thread_where と同じ言葉
 
+    @unittest.skipUnless(page_js.NODE, "node が無い")
     def test_thread_where_a_teammate_replied_last_keeps_my_comment_first(self):
         # 持ち主の側の人（担当）が最後に返したスレッドは私のターンでないが、私が最後に発言したのでもない。
         # 発言を「相手が先・私が後」に並べると、担当の返事が私より前に見えた。端末と同じ言い方も出す
-        tpl = (ROOT / "attention" / "templates" / "catchup.html").read_text(encoding="utf-8")
-        body = tpl.split("\nfunction thread(", 1)[1].split("\nfunction ", 1)[0]
-        self.assertIn("th.my_turn || th.side_last || (th.owes && th.owes.length) ? [mineEl, theirEl]", body)
-        self.assertIn("持ち主の側の ${th.side_last} が最後に返している", body)
-        # 私でない人が返すターン（人の最後の発言が私でない）も私が先。端末と同じ言い方を出す（受付 e07d56）
-        self.assertIn('${th.owes.join(", ")} が返すターン（相手のターン）', body)
-        # 端末と同じく、私が最後に発言したのか、私が入っていないのかを分ける（どちらも「相手のターン」だけだった）
-        self.assertIn('th.mine ? "私が最後に発言している（相手のターン）" : "私は入っていない（他の人同士の会話）"', body)
+        tpl = ROOT / "attention" / "templates" / "catchup.html"
+        threads = [{"side_last": "taro", "mine": {"quote": "q"}},
+                   # 私でない人が返すターン（人の最後の発言が私でない）も私が先。端末と同じ言い方を出す（受付 e07d56）
+                   {"owes": ["hanako", "jiro"], "mine": {"quote": "q"}},
+                   # 端末と同じく、私が最後に発言したのか、私が入っていないのかを分ける（どちらも「相手のターン」だけだった）
+                   {"mine": {"quote": "q"}}, {},
+                   {"my_turn": True, "mine": {"quote": "q"}}]
+        got = page_js.calc(tpl, f"{json.dumps(threads)}.map(t => [CALC.threadOrder(t), CALC.threadTurnLabel(t)])")
+        self.assertEqual([(order, label["text"], label["severe"]) for order, label in got], [
+            ("mine-first", "持ち主の側の taro が最後に返している（相手のターン）", False),
+            ("mine-first", "hanako, jiro が返すターン（相手のターン）", False),
+            ("theirs-first", "私が最後に発言している（相手のターン）", False),
+            ("theirs-first", "私は入っていない（他の人同士の会話）", False),
+            ("mine-first", "私が返すターン", True)])
+        # スレッドを描く関数がこの 2 つを使う（配線）
+        th = page_js.body(tpl, "thread")
+        for want in ("CALC.threadOrder(th)", "CALC.threadTurnLabel(th)"):
+            self.assertIn(want, th)
 
     def test_own_pr_reviewed_after_request_hides_candidates(self):
         # GitHub はレビューを送った人を依頼の一覧から外す（#1901）。依頼の記録とレビューがあれば候補の札は出さない

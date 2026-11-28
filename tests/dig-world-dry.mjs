@@ -6,7 +6,7 @@ import path from 'node:path'
 import os from 'node:os'
 import crypto from 'node:crypto'
 import { execFileSync } from 'node:child_process'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const SCRIPT = path.join(ROOT, 'attention/workflows/dig-world.js')
@@ -74,6 +74,29 @@ const evalDefs = (text, names) => new Function(`${text}\nreturn { ${names.join('
 // 工場の query-rule.md（1 行目の道具の印と、子を立てるときの区画を除く）。DW の QUERY_RULE はこれを字のまま埋める
 const QUERY_RULE_MD = read(path.join(WORLD, 'copied/query-rule.md')).split('\n').slice(1).join('\n')
   .replace(/<!-- if spawns -->\n[\s\S]*?<!-- end spawns -->\n/, '').trim()
+// 段の文（漏れ・比べる・層）は attention/prompts/world/*.md から生成した区画に在る（attention/scripts/gen-prompts.mjs）。
+// 区画の関数を評価し、変数を印に替えて描いた残り（md の地の文）を、AI に渡った文が順に含むかを見る。区画が md と同じかは texts で見る
+// 印の字は頭のコメントにも在るので、行まるごとで探す
+const WORLD_BLOCK = between(SRC, '\n// ==== world prompts ====\n', '\n// ==== end of world prompts ====\n')
+const MARK = '\u0001'
+let worldFns = null
+const world = name => (worldFns ??= evalDefs(WORLD_BLOCK, ['COMPARE_PROMPT', 'LEAK_PROMPT', 'LAYER_RULES']))[name]
+const varsOf = name => Object.fromEntries([...(WORLD_BLOCK.match(new RegExp(`_need\\('${name}', c, \\{([^}]*)\\}`))?.[1] ?? '')
+  .matchAll(/(\w+): '(\w+)\??'/g)].map(m => [m[1], m[2]]))
+const fixedText = (name, flags = {}) => {
+  const c = Object.fromEntries(Object.entries(varsOf(name)).map(([k, t]) => [k, t === 'flag' ? !!flags[k] : t === 'list' ? [MARK] : MARK]))
+  return world(name)(c).split(MARK).filter(x => x.trim())
+}
+const LAYER_TEXT = () => world('LAYER_RULES')({})
+const hasFixed = (prompt, name, flags) => {
+  let i = 0
+  for (const x of fixedText(name, flags)) {
+    const j = prompt.indexOf(x, i)
+    if (j < 0) return false
+    i = j + x.length
+  }
+  return true
+}
 const H = evalDefs(['fnv', 'shq', 'asciiJson'].map(n => defText(SRC, n)).join('\n'), ['fnv', 'shq', 'asciiJson'])
 const canonText = between(SRC, 'const canon =', '\n\n')
 const { sumOf } = evalDefs(`${defText(SRC, 'fnv')}\n${canonText}`, ['sumOf'])
@@ -338,11 +361,11 @@ const cases = {
     const { out, calls } = await run(baseArgs(), call => (call.stage === 'Restate' ? cls() : happy()(call)))
     check(out.status === 'ok' && out.rows.length === 2 && out.counts.classes === 2, `印の付いた行が返らない: ${out.status} ${out.reason}`)
     const leak = calls.find(c => c.stage === 'Leak').prompt
-    check(leak.includes('- Arises from the means of line 1 (the premise; it may stay): 手段 1') && leak.includes('arises from the means of line N'),
+    check(leak.includes('- Arises from the means of line 1 (the premise; it may stay): 手段 1') && hasFixed(leak, 'LEAK_PROMPT'),
       '漏れの照合に、元の行の手段を前提として渡していない')
     const cp = calls.filter(c => c.stage === 'Compare').map(c => c.prompt)
     const atOrigin = cp.find(p => p.includes(PROBLEM) && p.includes('- line 2 (mechanism 2), judged at the level of line 1'))
-    check(atOrigin && atOrigin.includes(P2) && atOrigin.includes('where the problem does not arise'), '行 1 の類の比べに、行 2 を元の行の水準で渡していない')
+    check(atOrigin && atOrigin.includes(P2) && hasFixed(atOrigin, 'COMPARE_PROMPT', { english: false }), '行 1 の類の比べに、行 2 を元の行の水準で渡していない')
     check(cp.some(p => p.includes('- line 2 (mechanism 2): 手段 2 (this problem arises from the means of line 1)')), '行 2 の類の比べに印が無い')
     const r1 = out.rows.find(r => r.n === 1), r2 = out.rows.find(r => r.n === 2)
     check(r1.arises_from === null && r1.comparisons.every(c => c.level === 'line'), `行 1 の印か比べの水準が違う: ${r1.arises_from}`)
@@ -484,8 +507,10 @@ print(json.dumps(m.shape_problems(json.loads(sys.stdin.buffer.read().decode("utf
       check(cs[1]?.prompt.includes(want), `2 回目の訳に「${want}」が無い`)
     }
     check(out.status === 'ok', `2 回目が通らない: ${out.reason}`)
-    check(cs[0].prompt.includes('do not copy its English words') && cs[0].prompt.includes('in Japanese, saying in Japanese'), '比べる役に challenge を lang で書く決まりが渡らない')
-    check(cs[0].prompt.includes('it is merely absent'), '比べる役に「問題が起きない」の線が渡らない')
+    // lang が英語でないときは、型を lang で言い直す側の文（COMPARE_PROMPT.md の {{else}}）と層の決まりが渡る
+    check(hasFixed(cs[0].prompt, 'COMPARE_PROMPT', { english: false }) && !hasFixed(cs[0].prompt, 'COMPARE_PROMPT', { english: true }),
+      '比べる役に COMPARE_PROMPT.md の文（challenge を lang で書く側）が渡らない')
+    check(cs[0].prompt.includes(LAYER_TEXT()), '比べる役に LAYER_RULES.md の文が渡らない')
     // lang が英語でないとき、型の英語を写した challenge と、X・Y の字を残した challenge は差し戻す
     const formOf = async (lang, text) => {
       let k = 0
@@ -508,7 +533,8 @@ print(json.dumps(m.shape_problems(json.loads(sys.stdin.buffer.read().decode("utf
     check(ok.cs.length === 1, `字の一部の X や Y で差し戻した: ${ok.cs.length}`)
     for (const lang of ['English', 'english', 'en']) {
       const en = await formOf(lang, 'The request does X; the counterpart does Y. Choose Y unless Z holds.')
-      check(en.cs.length === 1 && en.cs[0].prompt.includes('in the form "The request does X'), `lang が ${lang} のときの型が変わった: ${en.cs.length}`)
+      check(en.cs.length === 1 && hasFixed(en.cs[0].prompt, 'COMPARE_PROMPT', { english: true }) && !hasFixed(en.cs[0].prompt, 'COMPARE_PROMPT', { english: false }),
+        `lang が ${lang} のときの型が変わった: ${en.cs.length}`)
     }
     // 手段の無い行は none だけを受ける
     const nn = await run(baseArgs(), call => {
@@ -527,6 +553,10 @@ print(json.dumps(m.shape_problems(json.loads(sys.stdin.buffer.read().decode("utf
     // 工場の query-rule.md（1 行目の道具の印と、子を立てるときの区画を除く）と rejected.md が字のまま埋まっている
     const embedded = between(SRC, 'const QUERY_RULE = `', '`\nconst rejectedBlock')?.slice('const QUERY_RULE = `'.length)
     check(embedded === QUERY_RULE_MD, 'QUERY_RULE が copied/query-rule.md と違う')
+    // 漏れ・比べる・層の文の区画が attention/prompts/world/*.md の生成と同じで、和訳が揃う
+    // Windows では import() に絶対パスを渡すと落ちる（tests/my-turn-dig-dry.mjs と同じく file:// の URL にする）
+    const gen = await import(pathToFileURL(path.join(ROOT, 'attention/scripts/gen-prompts.mjs')).href)
+    for (const p of gen.check('dig-world')) fails.push(`prompts: ${p}`)
     const rj = read(path.join(WORLD, 'copied/rejected.md')).trim()
     const { REJECTED } = evalDefs(between(SRC, 'const REJECTED =', '\n// workflows/.shared/prompts/query-rule.md'), ['REJECTED'])
     check(REJECTED('{rejection}') === rj, 'REJECTED が copied/rejected.md と違う')

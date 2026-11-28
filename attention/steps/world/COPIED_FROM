@@ -6,5 +6,5 @@ lib/world-row.schema.json  sha256=8cf4260a86219e39d0edb54f871affca83b823cfa5a0b8
 workflows/.shared/prompts/query-rule.md  sha256=4cf08e486225f95ac12974db3e4f26ceffdeed07d9597e432b30e6ca0e09d27d  字のまま  copied/query-rule.md
 workflows/.shared/prompts/rejected.md  sha256=482b6b5780489cdd117381de5ee8be187584a904821d044830b0e3da81e18924  字のまま  copied/rejected.md
 workflows/world/prompts/world-classes.md  sha256=e728fc6c2c21fae0ead763af3def9e7ad57047e5174919839a0cf1d17f077b63  書き替えた  attention/workflows/dig-world.js の RESTATE_PROMPT
-workflows/world/prompts/parts/world-judge.md  sha256=a3860c19e538afab6d389a8a359016ca088d7db2b9c4f1f15f809289c6a7a65c  書き替えた  attention/workflows/dig-world.js の SEARCH_PROMPT と COMPARE_PROMPT
+workflows/world/prompts/parts/world-judge.md  sha256=a3860c19e538afab6d389a8a359016ca088d7db2b9c4f1f15f809289c6a7a65c  書き替えた  attention/workflows/dig-world.js の SEARCH_PROMPT と、attention/prompts/world/COMPARE_PROMPT.md・LAYER_RULES.md（dig-world.js に生成）
 workflows/world/src/steps.py  sha256=1fb7821c2144a88e49bfd392435f278215a8cddc5b08f6e80c649232dd87d979  書き替えた  受け付けは attention/workflows/dig-world.js、定数 MAX_EXCERPTS・MAX_BODY・HEADERS は world-excerpts.py

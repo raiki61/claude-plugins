@@ -296,6 +296,40 @@ a:hover { text-decoration: underline; }
 <body>
 <!--__BODY__-->
 <script type="application/json" id="map-data">/*__DATA__*/null</script>
+<script id="calc">
+"use strict";
+// DOM に触らない計算（数え方・class の付け方）。下のページのスクリプトがこれを呼び、
+// 試験（tests/page_js.py）はこの塊だけを node で読んで呼ぶ。ここでは document・window・要素に触らない
+const CALC = {
+  // 期間 period（{from, to}。YYYY-MM-DD の文字）の中の日か。日付は文字のまま比べる
+  inPeriod(period, d) { return !!d && d >= period.from && d <= period.to; },
+  // issue のクリティカルパス（マイルストーンの粒度の path）のうち、マイルストーン mn に在る issue の数
+  pathCount(path, mn) { return path.filter(s => s.m === mn).reduce((k, s) => k + s.issues.length, 0); },
+  // 枠に付ける class。shut は畳んだ枠、bare は open の issue の無い枠、wide は枠より広い（か 2 つ以上の）区画を持つ枠、
+  // mcrit は一番長い道に載るマイルストーンの枠（.frame.mcrit の縁）。f は枠、s は place() が組んだその枠の置き方
+  frameClasses(f, s) {
+    return { shut: !!f.shut, bare: !!s.bare, wide: s.panes.length > 1 || (s.panes.length === 1 && s.panes[0].w < s.head.w - 1),
+      mcrit: !!f.mcrit };
+  },
+  // 「誰が進めているか」の人ごとの数。数えるのは doers（担当者と閉じる PR を出した人。規則は milestone-map.py）だけで、
+  // ページで担当者と PR の作者を合わせ直さない。open は open の issue、prs は出している open の Linked PR、
+  // done は期間の中で閉じた issue。rows は数の多い順（同じなら名前の順）、nobody は doers の居ない open の issue の数
+  people(openAll, doneAll, period) {
+    const t = new Map(), get = w => t.get(w) || (t.set(w, { open: 0, prs: new Set(), done: 0 }), t.get(w));
+    for (const i of openAll) { for (const w of i.doers) get(w).open++; for (const [p, w] of i.prOf) if (w) get(w).prs.add(p); }
+    for (const i of doneAll) if (CALC.inPeriod(period, i.shut)) for (const w of i.doers) get(w).done++;
+    const rows = [...t].sort((a, b) => (b[1].open + b[1].done) - (a[1].open + a[1].done) || a[0].localeCompare(b[0]))
+      .map(([w, v]) => [w, { open: v.open, prs: [...v.prs], done: v.done }]);
+    return { rows, nobody: openAll.filter(i => !i.doers.length).length };
+  },
+  // 人を押したときに光らせる issue の番号。nobody はだれも進めていない印（その人が居ない open の issue）。
+  // その人の doers に入る issue のうち、open の物と、期間の中で閉じた物
+  whoSet(who, nobody, openAll, all, period) {
+    if (who === nobody) return openAll.filter(i => !i.doers.length).map(i => i.n);
+    return all.filter(i => i.doers.includes(who) && (i.state !== "done" || CALC.inPeriod(period, i.shut))).map(i => i.n);
+  },
+};
+</script>
 <script>
 (function () {
   "use strict";
@@ -309,7 +343,7 @@ a:hover { text-decoration: underline; }
   const TODAY = D.today.day || new Date().toISOString().slice(0, 10);
   const md = d => d.slice(0, 4) === TODAY.slice(0, 4) ? d.slice(5) : d;
   let P = { from: dayAdd(TODAY, -13), to: TODAY };
-  const inP = d => !!d && d >= P.from && d <= P.to;
+  const inP = d => CALC.inPeriod(P, d);
   const days = () => { const out = []; for (let d = P.from; d <= P.to && out.length < 400; d = dayAdd(d, 1)) out.push(d); return out; };
   // その日の終わりに残っていた数: 作られていて、まだ閉じていなかった issue（今そのマイルストーンに在る物で数える）
   const leftOn = (list, d) => list.reduce((k, i) => k + (i.made <= d && !(i.shut && i.shut <= d) ? 1 : 0), 0);
@@ -430,7 +464,7 @@ a:hover { text-decoration: underline; }
     head.addEventListener("mouseleave", () => { if (level === "milestone") mfocus(null); });
     head.addEventListener("focus", () => { if (level === "milestone") mfocus(m.n); });
     head.addEventListener("blur", () => { if (level === "milestone") mfocus(null); });
-    const onPathN = D.mlevel.path.filter(s => s.m === m.n).reduce((k, s) => k + s.issues.length, 0);
+    const onPathN = CALC.pathCount(D.mlevel.path, m.n);
     f.mcrit = onPathN > 0;
     f.el = el("div", { class: "frame" + (m.none ? " loose" : ""), "data-m": m.n }, head, el("div", { class: "empty" }, "open の issue は無い"),
       onPathN ? el("span", { class: "mbadge", title: "issue のクリティカルパスのうち、このマイルストーンに在る件数" }, `クリティカルパス ${onPathN} 件`) : null);
@@ -549,11 +583,8 @@ a:hover { text-decoration: underline; }
     const { out, h } = place();
     for (const { f, y, s } of out) {
       f.box = { x: s.head.x, y, w: s.head.w, h: s.head.h };
-      const wide = s.panes.length > 1 || (s.panes.length === 1 && s.panes[0].w < s.head.w - 1);
-      f.el.classList.toggle("shut", f.shut);
-      f.el.classList.toggle("bare", !!s.bare);
-      f.el.classList.toggle("wide", wide);
-      f.el.classList.toggle("mcrit", f.mcrit);
+      const cls = CALC.frameClasses(f, s), wide = cls.wide;
+      for (const [k, on] of Object.entries(cls)) f.el.classList.toggle(k, on);
       Object.assign(f.el.style, { left: f.box.x + "px", top: y + "px", width: f.box.w + "px", height: s.head.h + "px" });
       for (const [c, pane] of f.panes) {
         const p = s.panes.find(q => q.c === c);
@@ -1004,22 +1035,18 @@ a:hover { text-decoration: underline; }
   }
   function whoSet() {
     if (who == null) return null;
-    if (who === NOBODY) return new Set(openAll.filter(i => !i.doers.length).map(i => i.n));
-    return new Set(all.filter(i => i.doers.includes(who) && (i.state !== "done" || inP(i.shut))).map(i => i.n));
+    return new Set(CALC.whoSet(who, NOBODY, openAll, all, P));
   }
   function drawPeople() {
-    const t = new Map(), get = w => t.get(w) || (t.set(w, { open: 0, prs: new Set(), done: 0 }), t.get(w));
-    for (const i of openAll) { for (const w of i.doers) get(w).open++; for (const [p, w] of i.prOf) if (w) get(w).prs.add(p); }
-    for (const i of doneAll) if (inP(i.shut)) for (const w of i.doers) get(w).done++;
-    const rows = [...t].sort((a, b) => (b[1].open + b[1].done) - (a[1].open + a[1].done) || a[0].localeCompare(b[0]));
-    const nobody = openAll.filter(i => !i.doers.length).length;
+    // 数えるのは doers だけ（CALC.people）
+    const { rows, nobody } = CALC.people(openAll, doneAll, P);
     const num = (label, v) => v ? [label, el("b", {}, v), " "] : [];
     people.textContent = "";
     people.append(el("span", { class: "lab" }, "誰が進めているか", tourNav));
     for (const [w, v] of rows) {
       const b = el("button", { type: "button", class: "who" + (who === w ? " on" : ""),
         title: w + "（クリックすると、その人のカードへスクロールする。‹ › で次のカードへ）\nOpen: Assignees に居るか、Linked PR を出している open の issue\nPR: 出している open の Linked PR\nClosed: 期間の中で閉じた issue のうち、Assignees に居たか、閉じた Linked PR を出した物（PR でなく手で閉じ Assignees も居ない物は、閉じた人）" }, avatar(w), w,
-        el("small", {}, ...num("Open ", v.open), ...num("PR ", v.prs.size), ...num("Closed ", v.done)));
+        el("small", {}, ...num("Open ", v.open), ...num("PR ", v.prs.length), ...num("Closed ", v.done)));
       b.addEventListener("click", () => pick(w));
       people.append(b);
     }

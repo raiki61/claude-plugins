@@ -29,6 +29,8 @@ _spec = importlib.util.spec_from_file_location("milestone_map", ROOT / "attentio
 mm = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(mm)
 ghpage = sys.modules["ghpage"]
+sys.path.append(str(ROOT / "tests"))
+import page_js  # noqa: E402  雛形の DOM に触らない計算（<script id="calc">）を node で呼ぶ
 
 TODAY = dt.date(2026, 11, 4)
 REPO = "o/r"
@@ -425,14 +427,27 @@ class MilestoneLevel(unittest.TestCase):
         self.assertRegex(head, r'<p class="path mpath" hidden>.*data-m="1".*data-m="2".*data-m="3"')
         self.assertIn('data-level="milestone"', page)
 
+    @unittest.skipUnless(page_js.NODE, "node が無い")
     def test_frame_on_the_path_gets_the_mcrit_class(self):
         # 一番長い道に載るマイルストーンの枠を縁で目立たせる CSS（.frame.mcrit）は在ったのに、枠にクラスを付ける行が
         # 無く効いていなかった（頼み c348d0）。ほかの枠のクラス（shut・bare・wide）と同じく layout() で付ける
         tpl = mm.TEMPLATE.read_text(encoding="utf-8")
         self.assertIn("#world.mlevel .frame.mcrit .fhead {", tpl)
-        self.assertIn("f.mcrit = onPathN > 0;", tpl)
+        # 付ける class は CALC.frameClasses が決め、layout() がそれを全部付け外しする（付ける行の抜けはここで止まる）
         lay = tpl.split("function layout() {", 1)[1].split("\n  function ", 1)[0]
-        self.assertIn('f.el.classList.toggle("mcrit", f.mcrit);', lay)
+        self.assertIn("CALC.frameClasses(f, s)", lay)
+        # 道に載る issue の数はそのマイルストーンの段だけ数える。載っていれば mcrit
+        path = [{"m": 1, "issues": [5]}, {"m": 2, "issues": [6, 7]}, {"m": 1, "issues": [8]}]
+        self.assertEqual(page_js.calc(mm.TEMPLATE, f"[1, 2, 3].map(m => CALC.pathCount({json.dumps(path)}, m))"), [2, 2, 0])
+        # 枠を作る所が、この数で mcrit を決める（配線）
+        self.assertIn("const onPathN = CALC.pathCount(D.mlevel.path, m.n);\n    f.mcrit = onPathN > 0;", tpl)
+        one = '{bare: false, head: {w: 300}, panes: [{w: 300}]}'
+        cls = lambda f, s=one: page_js.calc(mm.TEMPLATE, f"CALC.frameClasses({f}, {s})")  # noqa: E731
+        self.assertEqual(cls("{mcrit: true}"), {"shut": False, "bare": False, "wide": False, "mcrit": True})
+        self.assertEqual(cls("{mcrit: false, shut: true}"), {"shut": True, "bare": False, "wide": False, "mcrit": False})
+        # wide は区画が 2 つ以上か、1 つでも枠の頭より狭いとき。bare は open の issue の無い枠
+        self.assertTrue(cls("{}", '{bare: true, head: {w: 300}, panes: [{w: 200}]}')["wide"])
+        self.assertTrue(cls("{}", '{bare: true, head: {w: 300}, panes: [{w: 300}, {w: 300}]}')["bare"])
 
     def test_late_rule(self):
         self.assertEqual([mm.is_late(a, b) for a, b in [("2026-11-20", "2026-11-10"), ("2026-11-10", "2026-11-20"), (None, "2026-11-10"),
@@ -689,15 +704,27 @@ class Doers(unittest.TestCase):
         self.assertEqual(self.card(done=closed(5, made, shut, actor="x", reason="NOT_PLANNED"))["doers"], [])
         self.assertEqual(self.card(done=closed(6, made, shut, actor="stale", bot=True))["doers"], [])
 
+    @unittest.skipUnless(page_js.NODE, "node が無い")
     def test_page_does_not_count_again(self):
         # 規則はここだけに置く。ページの JS が担当者と PR の作者を合わせ直していないこと
         page = (pathlib.Path(mm.__file__).parent.parent / "templates" / "milestone-map.html").read_text(encoding="utf-8")
         for again in (r"i\.who\.concat", r"\.\.\.\s*i\.(who|prBy)", r"i\.prBy\.(filter|concat|forEach)"):
             self.assertIsNone(re.search(again, page), again)
-        # 人の一覧の数と、人を押して光らせる組は doers だけで数える
-        self.assertEqual(len(re.findall(r"for \(const w of i\.doers\)", page)), 2)
-        self.assertEqual(len(re.findall(r"!i\.doers\.length", page)), 2)
-        self.assertIn("i.doers.includes(who)", page)
+        # 人の一覧の数と、人を押して光らせる組は doers だけで数える。who・prBy に居ても doers に居ない人（b・x）は
+        # open・done に数えず、光らせない。期間の外で閉じた物（4）も数えない。doers の居ない open（2）は nobody
+        open_ = [{"n": 1, "who": ["a"], "prBy": ["b"], "doers": ["a"], "prOf": [[7, "b"]]},
+                 {"n": 2, "who": [], "prBy": [], "doers": [], "prOf": []}]
+        done = [{"n": 3, "state": "done", "shut": "2026-11-02", "who": ["a"], "prBy": ["x"], "doers": ["a"], "prOf": []},
+                {"n": 4, "state": "done", "shut": "2026-10-01", "who": ["c"], "prBy": [], "doers": ["c"], "prOf": []}]
+        period = {"from": "2026-10-22", "to": "2026-11-04"}
+        args = f"{json.dumps(open_)}, {json.dumps(done)}, {json.dumps(period)}"
+        self.assertEqual(page_js.calc(mm.TEMPLATE, f"CALC.people({args})"),
+                         {"rows": [["a", {"open": 1, "prs": [], "done": 1}], ["b", {"open": 0, "prs": [7], "done": 0}]], "nobody": 1})
+        who = lambda w: page_js.calc(mm.TEMPLATE, f"""((o, d, p) => CALC.whoSet({w}, "\\u0000", o, o.concat(d), p))({args})""")  # noqa: E731
+        self.assertEqual([who(w) for w in ('"a"', '"b"', '"x"', '"c"', '"\\u0000"')], [[1, 3], [], [], [], [2]])
+        # 人の一覧と光らせる組を描く関数がこの数え方を使う（配線）
+        self.assertIn("CALC.people(", page_js.body(mm.TEMPLATE, "drawPeople"))
+        self.assertIn("CALC.whoSet(", page_js.body(mm.TEMPLATE, "whoSet"))
         # 矢印を押して飛ぶ口と、ドラッグの後の click を止める口が在る
         self.assertIn('class: "grab"', page)
         self.assertIn('view.addEventListener("click", ev => { if (dragged)', page)
