@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.174.3] - 2026-11-28
+
 ### Changed
 
 - 試験だけを直した。ブランチを main に入れる `--land` の `--dry-run` の試験で、ユーザーへ伝えた文を持つ `self.told` を 1 つの assert で 2 回見ていたので、片方を端末の窓へ打ち込んだ入力（`ports.term.prompts`）に替え、dry run が窓に何も打ち込まないことも検査するようにした。`--land` の振る舞いは変えていない（頼み 900eef）。
