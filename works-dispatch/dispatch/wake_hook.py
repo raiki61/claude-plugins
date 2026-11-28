@@ -54,7 +54,11 @@
   終わりの印（--done）を外す。会話が文を読む前に済ませる（裏で走らせると、同じターンの中で会話が打った --wait より後に走って、付けたばかりの印を外しうる。
   そうなると止まる前のフックが答え待ちの頼みを「納品していない」と差し戻し続ける。社長室で 3 回続いた）。
 - UserPromptSubmit（`--pause`。async）: 人の文でターンが始まったら、その場所の待ち受けを止める（待ち受けは印の token を書き替えるだけ）。
-  窓に打ち込まれた知らせも人の文と同じに数える。
+  窓に打ち込まれた知らせも人の文と同じに数える。席の空いた本社の待ち受け（下）も止める。
+
+席の空いた本社（--desk が書いた窓口の会話の処理がもう動いていない）では、席に付いていない会話のターンの終わりと始まりに、渡さずに
+知らせるだけの待ち受け（vacant_plan・watch_vacant）を張る。窓口宛ての頼みか知らせが届けば、席が空いていることと --desk で席に付く手で
+会話を再開させる（受付 cbc737）。
 
 部署か窓口（その場所の git の設定に company.role と company.name が在る）でなければ、すぐ 0 で終わる。待つのは場所の属性
 company.session の会話だけ（部署で属性に id が無ければ誰でも。窓口〔代表の clone〕は id が要る）。この会話の id と違うときは、
@@ -157,6 +161,94 @@ def plain_plan(cwd, sid, attrs, parent=os.getppid, env=os.environ):
         return None   # 受付箱が無い会社には、まだ誰も知らせていない（--say は受付箱の台帳に置く）
     return {"cwd": cwd, "root": gitx.root_of(common), "inbox": inbox, "place": place, "names": [wake.place_address(place)],
             "session": sid, "owner": parent(), "adopt": False, "company": None, "job": job_of(env), "since": {}, "plain": True}
+
+
+def vacant_plan(payload, env=os.environ, attrs_of=_attrs, parent=os.getppid, running=chat.running):
+    """席の空いた本社（代表の clone の窓口の席）で、席に付いていない会話の待ち受けの plan か None。plan が None を返した会話にだけ聞く。
+    席が空いたと見るのは、--desk が書いた会話の処理（company.pid）がもう Claude Code として動いておらず、席の待ち受けの印の会話も
+    生きていないとき。処理の番号の無い席（前の版の --desk が書いた物）は、席の会話が動いているかを確かめられないので見ない
+    （--desk も番号の無い席は動いていると見ずに取らせるので、ここで空いたと見ると、動いている窓口の席を別の会話に取らせうる）。
+    この待ち受けは頼みも知らせも渡さず、窓口宛ての物が届いたら、席が空いていることと --desk で席に付く手を会話に知らせる
+    （watch_vacant）。窓口の会話を持ち主が /exit などで終え、同じ窓で別の会話を起動したまま --desk を打たないと、窓口の待ち受けが
+    張られず、窓口宛ての頼みが順番待ちに積まれたまま誰にも知らされなかった（2026-11-28、guided-resolver の本社。受付 cbc737）。"""
+    cwd = payload.get("cwd") or os.getcwd()
+    sid = payload.get("session_id")
+    attrs = attrs_of(cwd)
+    if not (sid and attrs.get("role") and attrs.get("name") and attrs.get("session") and attrs.get("pid")) or attrs["session"] == sid:
+        return None
+    common, place = gitx.common_dir(cwd), gitx.git_dir(cwd)
+    if not common or not place or os.path.realpath(common) != os.path.realpath(place):
+        return None   # 本社（代表の clone）だけ。部署の場所のほかの会話は、部署の会話を戻せば済む（orders.seat_lost）
+    inbox = deliver.inbox_of(common)
+    if not os.path.isdir(inbox) or running(attrs["pid"]):
+        return None
+    held = wake.read_mark(inbox, place)
+    if held and wake.alive(held):
+        return None
+    root = gitx.root_of(common)
+    info = tree.read_info(root, os.path.dirname(config.path_of(attrs.get("config"), env)), gitx)
+    company = tree.company_name(root, info)
+    return {"cwd": cwd, "root": root, "inbox": inbox, "place": place, "names": wake.addresses(company, attrs, gitx.former_names(attrs)),
+            "session": sid, "owner": parent(), "company": company, "desk": attrs["name"], "seat": attrs["session"], "vacant": True}
+
+
+# 部署だけが読む文なので英語で書く（ルートの CLAUDE.md の「会話」）
+# terms: english-begin
+VACANT_NOTE = ("(works-dispatch: this conversation runs in the head office of company `{company}`, which is the seat of the front desk "
+               "`{desk}`. The seated conversation `{seat}` has ended and this conversation has not taken the seat, so asks and notices "
+               "for the front desk reach no one. New ones arrived: {ids} ({queued} ask(s) wait in the queue). If this conversation serves "
+               "as the front desk (the owner opened it in the front desk's window and did not say otherwise), run `{run} --desk` now; the "
+               "watcher at the end of this turn then hands the queue and the notices. If it must not take the seat, do not run it; tell "
+               "the owner in one line that the seat is vacant and the asks wait (`{run} --tree` lists them; an asker can move one with "
+               "`--take <id> --ask <company>/<role>`). You are told once per id.)")
+# terms: english-end
+
+
+def watch_vacant(got, err, h=term, me=lambda: chat.host()[0], attrs_of=_attrs, now=time.time, pause=time.sleep, parent=os.getppid):
+    """席の空いた本社の、席に付いていない会話の待ち受け（vacant_plan）。終了の値（2 は会話に渡す字を err に出した）。
+    この会話が herdr のペインの前に居る会話でなければ（talk_window。会話の中から起動した claude -p の試しなど）張らない。
+    窓口宛ての順番待ちの頼みと、台帳に足された窓口宛ての知らせ（wake.mine）のうち、この会話にまだ知らせていない受付があれば、
+    VACANT_NOTE で会話を再開させる（同じ受付は 1 度だけ。知らせた受付と台帳を読んだ所は控え wake.vacant_path に会話ごとに残す）。
+    頼みも知らせも渡さず、席の待ち受けの読んだ所（wake.pos_path）も進めない（席に付いた会話の待ち受けが、順番待ちと台帳から渡す）。
+    抜けるのは、新しい待ち受けに替わった・人の文で止めた（pause_here）・会話の処理が落ちた・席に会話が付いた（属性の会話が替わった）とき。"""
+    inbox, place = got["inbox"], got["place"]
+    try:
+        if talk_window(got["cwd"], h, [me()]) is None:
+            return 0
+    except term.Error:
+        return 0
+    log = os.path.join(inbox, wake.LOG)
+    token = wake.new_token()
+    kept = wake.read_vacant(inbox, place)
+    mine_ = kept if kept.get("session") == got["session"] else {}
+    state = {"token": token, "session": got["session"], "owner": got["owner"], "pid": os.getpid(), "since": now(),
+             "pos": mine_.get("pos", wake._size(log)), "told": list(mine_.get("told") or [])}
+    wake.write_vacant(inbox, place, state)
+    beat = now()
+    while True:
+        if (wake.read_vacant(inbox, place) or {}).get("token") != token or parent() != got["owner"]:
+            return 0
+        if now() - beat >= wake.BEAT:
+            beat = now()
+            try:
+                if attrs_of(got["cwd"]).get("session") != got["seat"]:
+                    return 0   # 席に会話が付いた（この会話か、ほかの会話）。付いた会話の待ち受けが渡す
+            except (gitx.GitError, OSError):
+                pass   # 属性を読めない回は席が替わったか分からないので、待ち受けを続ける（次の BEAT で読み直す）
+        ids, pos = [q["id"] for q in wake.queued(inbox, place) if q.get("id")], state["pos"]
+        if wake._size(log) > pos:
+            records, state["pos"], _ = wake.read_new(log, pos)
+            ids += [r["id"] for r in records if wake.mine(r, got["names"]) and r.get("id")]
+        new = [i for i in dict.fromkeys(ids) if i not in state["told"]]
+        state["told"] += new
+        if new or state["pos"] != pos:
+            wake.write_vacant(inbox, place, state)
+        if new:
+            err.write(VACANT_NOTE.format(company=got["company"], desk=got["desk"], seat=got["seat"], ids=", ".join(new),
+                                         queued=len(wake.queued(inbox, place)), run=RUN) + "\n")
+            err.flush()
+            return 2
+        pause(wake.POLL)
 
 
 # herdr が会話の手が空いたと見る状態（done はターンを終えたまま見られていない物）
@@ -1297,6 +1389,10 @@ def pause_here(payload):
     """人の文でターンが始まった（--pause。裏で走る）: その場所の待ち受けを止める（印の token を書き替える。印は消さない）。"""
     got = plan(payload)
     if not got:
+        vacant = vacant_plan(payload)
+        kept = wake.read_vacant(vacant["inbox"], vacant["place"]) if vacant else {}
+        if kept.get("session") == payload.get("session_id") and kept.get("token") != "paused":
+            wake.write_vacant(vacant["inbox"], vacant["place"], {**kept, "token": "paused"})
         return 0
     held = wake.read_mark(got["inbox"], got["place"])
     if held and held.get("session") == got["session"]:
@@ -1774,7 +1870,8 @@ def main(argv=None, stdin=sys.stdin, err=sys.stderr, newer=newer_self, jump=hop,
             print(f"works-dispatch: 使用上限で止まった会話を待つ印を外せなかった（{e}）", file=err)
     got = plan(payload)
     if not got:
-        return 0
+        vacant = vacant_plan(payload)
+        return watch_vacant(vacant, err) if vacant else 0
     if got.get("plain"):
         return watch_plain(got, err)
     if handed and (wake.read_mark(got["inbox"], got["place"]) or {}).get("token") != handed:
