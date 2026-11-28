@@ -528,7 +528,9 @@ class FindClaude(unittest.TestCase):
         self.assertEqual(self.find("2.1.302", "/usr/bin/node"), "")
 
 
-@unittest.skipUnless(sys.platform == "darwin", "日本語のロケールの ps で Claude のプロセスの経過時間を読む所（macOS の ps で確かめる）")
+# macOS だけで走らせていたが、CI は tiers を ubuntu と windows でしか回さず、一度も走っていなかった（2026-11-28 の点検の頼み 900eef）。
+# 起きた時刻は ps の経過時間（etime）で出すので Linux の ps でも読める。見送るのは bg-count.sh の動かない Windows だけ（下の BgAgentsBornEtime と同じ）
+@unittest.skipIf(os.name == "nt", "bg-count.sh は macOS と Linux だけで動く（Windows の bash は WSL の bash.exe に当たることもある）")
 class BgAgentsBorn(unittest.TestCase):
     """bg-count.sh が、Claude のプロセスより前に最後の行を書いた背景のサブエージェントを数えない所。"""
 
