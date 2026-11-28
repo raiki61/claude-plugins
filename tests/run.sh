@@ -2519,6 +2519,9 @@ export CR_PY="$PY_BIN" CR_REPLY_PY="$ROOT/tests/coldread-reply.py"
 CR_ANS='"$CR_PY" "$CR_REPLY_PY"'
 CR_STUB_CLEAN="cat >/dev/null; $CR_ANS"
 CR_STUB_BLOCK="cat >/dev/null; $CR_ANS 'stuck=F3 が何か本文で解決できない' 'question=期限はいつか'"
+# 読み役の詰まりで止めたときにだけ出る句(ゲートの deny の頭。coldread-gate.py)。「詰まり」だけを待つと、通した時の
+# 「coldreader の検査を通過(詰まりゼロ)」にも当たり、止めるはずの投稿を通しても緑のままになる(頼み 900eef の点検)
+CR_DENIED='がこの本文で詰まった('
 CR_STUB_QUEST="cat >/dev/null; $CR_ANS 'question=期限はいつか'"
 # 3 回目からは前の回から残った詰まりだけが止める。続けて止まる数を見る検査は、前の回の印の付いた詰まりを返す代役を使う
 CR_STUB_CARRY="cat >/dev/null; $CR_ANS 'stuck+carried=F3 が何か本文で解決できない' 'question=期限はいつか'"
@@ -2595,7 +2598,7 @@ expect_output 0 "ALLOW_EMPTY" "400 文字未満の返信は素通し" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body 'ありがとうございます'"
 # 逃げ道 COLDREAD_SKIP=1 はエージェントに使わせない(持ち主の判断 2026-10-16)。書かれていても検査を外さず、
 # 書いた事実だけを記録に残す。持ち主が自分で出すときは Claude Code の ! か自分の端末で打つ(gates/README.md)
-expect_output 0 "詰まり" "COLDREAD_SKIP=1 を付けても検査は外れない" \
+expect_output 0 "$CR_DENIED" "COLDREAD_SKIP=1 を付けても検査は外れない" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "COLDREAD_SKIP=1 $CR_POST"
 expect_output 0 "refused" "効かせなかった逃げ道も記録に残る" \
     cat "$CR_CFG/coldread-gate/skip.log"
@@ -2609,14 +2612,14 @@ $CR_BODY
 検査を飛ばすときは COLDREAD_SKIP=1 を付けて再実行します。
 $CR_PAD
 EOF"
-expect_output 0 "詰まり" "本文が COLDREAD_SKIP=1 に言及するだけでは外れない" \
+expect_output 0 "$CR_DENIED" "本文が COLDREAD_SKIP=1 に言及するだけでは外れない" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "$CR_BODY_MENTIONS"
-expect_output 0 "詰まり" "旗の値としての COLDREAD_SKIP=1 でも外れない" \
+expect_output 0 "$CR_DENIED" "旗の値としての COLDREAD_SKIP=1 でも外れない" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue comment 1 --body 'COLDREAD_SKIP=1 $CR_BODY $CR_PAD'"
-expect_output 0 "詰まり" "cd の次の行に逃げ道を前置しても外れない" \
+expect_output 0 "$CR_DENIED" "cd の次の行に逃げ道を前置しても外れない" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "cd /tmp
 COLDREAD_SKIP=1 $CR_POST"
-expect_output 0 "詰まり" "&& の先に逃げ道を前置しても外れない" \
+expect_output 0 "$CR_DENIED" "&& の先に逃げ道を前置しても外れない" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "cd /tmp && COLDREAD_SKIP=1 $CR_POST"
 expect_output 0 "解析できない" "解析できないコマンドは、逃げ道を前置しても止める" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "COLDREAD_SKIP=1 gh issue comment 1 --body '引用が閉じない $CR_BODY $CR_PAD"
@@ -2624,7 +2627,7 @@ expect_output 0 "取り出せない" "本文ファイルが無ければ deny" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body-file $CR_NOFILE/real.md # $CR_PAD"
 expect_output 0 "通じやすさのみ" "読み役が CLEAN なら通り、保証範囲の注が載る" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_CLEAN" "$CR_POST"
-expect_output 0 "詰まり" "読み役の詰まりで deny になり指摘が載る" \
+expect_output 0 "$CR_DENIED" "読み役の詰まりで deny になり指摘が載る" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "$CR_POST"
 expect_output 0 "残った疑問" "疑問のみなら通り、申し送りが載る" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_QUEST" "$CR_POST"
@@ -2640,13 +2643,13 @@ expect_output 0 "NO_SKIP_ADVICE" "読み役の故障の理由の文も、逃げ�
 # この経路で記録の無い素通しになることを実測した——同じコマンドに独立した穴が 2 つ在った。
 # 4 形を張るのは折り返す位置で壊れ方が変わるため。期待を「詰まり」にするのは、
 # deny になった事実でなく読み役が実際に本文を読んだことまで見るため。
-expect_output 0 "詰まり" "行継続: 旗の前で折り返してもゲートに掛かる" \
+expect_output 0 "$CR_DENIED" "行継続: 旗の前で折り返してもゲートに掛かる" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue comment 1 \\
   --body '$CR_BODY $CR_PAD'"
-expect_output 0 "詰まり" "行継続: サブコマンドの後で折り返してもゲートに掛かる" \
+expect_output 0 "$CR_DENIED" "行継続: サブコマンドの後で折り返してもゲートに掛かる" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue \\
   comment 1 --body '$CR_BODY $CR_PAD'"
-expect_output 0 "詰まり" "行継続: gh api + ヒアドキュメント(事故の形)もゲートに掛かる" \
+expect_output 0 "$CR_DENIED" "行継続: gh api + ヒアドキュメント(事故の形)もゲートに掛かる" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh api repos/o/r/issues -X POST \\
   -f title='t' \\
   -F body=@- <<'EOF'
@@ -2654,7 +2657,7 @@ $CR_BODY
 $CR_PAD
 EOF"
 CR_CONT_CRLF=$(printf "gh issue comment 1 \\\\\r\n  --body '%s %s'" "$CR_BODY" "$CR_PAD")
-expect_output 0 "詰まり" "行継続: CRLF で届いてもゲートに掛かる" \
+expect_output 0 "$CR_DENIED" "行継続: CRLF で届いてもゲートに掛かる" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "$CR_CONT_CRLF"
 # 単一引用の中の `\`+改行 は行継続ではない(シェルが畳まない)。畳んでしまうと本文が
 # 書かれたとおりに読み役へ渡らないので、こちらは保つ側を張る。
@@ -2695,10 +2698,10 @@ expect_output 0 "畳まれずに届いた" "単一引用の中の改行は畳ま
 # 単純コマンドが融合し、先頭語が cd や echo になって gh が見えなくなる。
 # 行継続を畳むようにしたぶん融合の射程が「物理行」から「論理行」へ広がるので、
 # 塞ぐ側を張る(1 件目は今回の変更が入れた退行、2 件目は元から在った穴)
-expect_output 0 "詰まり" "語中の # があっても行継続の先の本文旗を見失わない" \
+expect_output 0 "$CR_DENIED" "語中の # があっても行継続の先の本文旗を見失わない" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue create -R o/r --title fix#123 \\
   --body '$CR_BODY $CR_PAD'"
-expect_output 0 "詰まり" "注釈行の次の行の gh を見失わない" \
+expect_output 0 "$CR_DENIED" "注釈行の次の行の gh を見失わない" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "cd /tmp  # 作業場所
 gh issue comment 1 --body '$CR_BODY $CR_PAD'"
 
@@ -2707,20 +2710,20 @@ gh issue comment 1 --body '$CR_BODY $CR_PAD'"
 #   注釈が先   → 1 件目を落とす(行が連結されるので #y は語中の # であって注釈ではない)
 #   行継続が先 → 2 件目を落とす(注釈は行末で切れるので、その \ は注釈の一部)
 # 2 件同時に緑になるのは 1 パスのときだけなので、この 2 本で順序への逆戻りを縛る
-expect_output 0 "詰まり" "行継続で連結した後の # は語中(注釈にせず、後ろの gh を残す)" \
+expect_output 0 "$CR_DENIED" "行継続で連結した後の # は語中(注釈にせず、後ろの gh を残す)" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "echo x\\
 #y; gh issue comment 1 --body '$CR_BODY $CR_PAD'"
-expect_output 0 "詰まり" "注釈の中の \\ は行継続にしない(次の行の gh を残す)" \
+expect_output 0 "$CR_DENIED" "注釈の中の \\ は行継続にしない(次の行の gh を残す)" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "echo a # メモ \\
 gh issue comment 1 --body '$CR_BODY $CR_PAD'"
 
 # シェルの予約語。( gh … ) は元からゲートに掛かるのに { gh …; } は抜ける、という
 # 「書き方だけで片方が抜ける」状態だった
-expect_output 0 "詰まり" "{ } で括った gh もゲートに掛かる" \
+expect_output 0 "$CR_DENIED" "{ } で括った gh もゲートに掛かる" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "{ gh issue comment 1 --body '$CR_BODY $CR_PAD'; }"
-expect_output 0 "詰まり" "if の then に置いた gh もゲートに掛かる" \
+expect_output 0 "$CR_DENIED" "if の then に置いた gh もゲートに掛かる" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "if true; then gh issue comment 1 --body '$CR_BODY $CR_PAD'; fi"
-expect_output 0 "詰まり" "while の do に置いた gh もゲートに掛かる" \
+expect_output 0 "$CR_DENIED" "while の do に置いた gh もゲートに掛かる" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "while true; do gh issue comment 1 --body '$CR_BODY $CR_PAD'; break; done"
 
 # ゲートから漏れた投稿を数えられるようにする。sh -c は受容済みの限界(gates/README.md)だが、
@@ -2761,25 +2764,25 @@ CR_NOTES="gh release create v9.9.9 --notes-file - <<'EOF'
 $CR_BODY
 $CR_PAD
 EOF"
-expect_output 0 "詰まり" "release create --notes-file もゲートに掛かる" \
+expect_output 0 "$CR_DENIED" "release create --notes-file もゲートに掛かる" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "$CR_NOTES"
-expect_output 0 "詰まり" "issue close --comment もゲートに掛かる" \
+expect_output 0 "$CR_DENIED" "issue close --comment もゲートに掛かる" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue close 9 --comment '$CR_BODY $CR_PAD'"
 expect_output 0 "ALLOW_EMPTY" "gh api graphql の長い読み取りは巻き込まない" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh api graphql -f query='query { repository { pullRequest { comments(first: 50) { nodes { body } } } } } # $CR_PAD'"
-expect_output 0 "詰まり" "--body の長文が読み役に届く" \
+expect_output 0 "$CR_DENIED" "--body の長文が読み役に届く" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue comment 1 --body '$CR_BODY $CR_PAD'"
-expect_output 0 "詰まり" "-b 短縮形もゲートに掛かる" \
+expect_output 0 "$CR_DENIED" "-b 短縮形もゲートに掛かる" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh pr comment 1 -b '$CR_BODY $CR_PAD'"
 CR_FDASH="gh issue comment 1 -F - <<'EOF'
 $CR_BODY
 $CR_PAD
 EOF"
-expect_output 0 "詰まり" "-F - (--body-file 短縮形)のヒアドキュメントもゲートに掛かる" \
+expect_output 0 "$CR_DENIED" "-F - (--body-file 短縮形)のヒアドキュメントもゲートに掛かる" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "$CR_FDASH"
-expect_output 0 "詰まり" "release create -n 短縮形もゲートに掛かる" \
+expect_output 0 "$CR_DENIED" "release create -n 短縮形もゲートに掛かる" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh release create v1 -n '$CR_BODY $CR_PAD'"
-expect_output 0 "詰まり" "gh api -f body= もゲートに掛かる" \
+expect_output 0 "$CR_DENIED" "gh api -f body= もゲートに掛かる" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh api repos/o/r/issues/1/comments -f body='$CR_BODY $CR_PAD'"
 # gh api は自分の旗を endpoint の前に置ける。読むだけの形を「サブコマンドを特定できない」で止めない（2026-10-15 に実測した誤り）。
 # 前に旗を置いた投稿は、旗の値ごと読み飛ばしたうえでゲートに掛かる
@@ -2787,35 +2790,35 @@ expect_output 0 "ALLOW_EMPTY" "gh api の読み取りは、endpoint の前に値
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "for j in 1 2; do gh api --allow-escape-sequences repos/o/r/actions/jobs/\$j/logs > w\$j.log; done # $CR_PAD"
 expect_output 0 "ALLOW_EMPTY" "gh api の読み取りは、endpoint の前に値を取る旗が在っても素通し" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh api -X GET --jq .name --paginate repos/o/r/actions/jobs/1 # $CR_PAD"
-expect_output 0 "詰まり" "endpoint の前に旗を置いた gh api の投稿もゲートに掛かる" \
+expect_output 0 "$CR_DENIED" "endpoint の前に旗を置いた gh api の投稿もゲートに掛かる" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh api --silent -XPOST repos/o/r/issues/1/comments -f body='$CR_BODY $CR_PAD'"
 expect_output 0 "取り出せない" "gh api の知らない旗は今までどおり検査できない側に倒す" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh api --no-such-flag repos/o/r/issues/1/comments -f body='$CR_BODY $CR_PAD'"
 CR_JSON_POST="gh api repos/o/r/issues/1/comments --input - <<'EOF'
 {\"body\": \"$CR_BODY $CR_PAD\"}
 EOF"
-expect_output 0 "詰まり" "--input - の JSON 本文もゲートに掛かる" \
+expect_output 0 "$CR_DENIED" "--input - の JSON 本文もゲートに掛かる" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "$CR_JSON_POST"
-expect_output 0 "詰まり" "graphql の mutation は body: の文字列を本文として読ませる" \
+expect_output 0 "$CR_DENIED" "graphql の mutation は body: の文字列を本文として読ませる" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh api graphql -f query='mutation { addComment(input:{subjectId:\"x\", body:\"$CR_BODY $CR_PAD\"}) }'"
-expect_output 0 "詰まり" "列挙に無いサブコマンドでも本文の旗があればゲートに掛かる" \
+expect_output 0 "$CR_DENIED" "列挙に無いサブコマンドでも本文の旗があればゲートに掛かる" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh discussion comment 1 --body '$CR_BODY $CR_PAD'"
-expect_output 0 "詰まり" "複合コマンド中の gh も判定する" \
+expect_output 0 "$CR_DENIED" "複合コマンド中の gh も判定する" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "cd /tmp && gh issue comment 1 --body '$CR_BODY $CR_PAD'"
-expect_output 0 "詰まり" "小文字・数字入りの環境変数前置でも gh を見失わない" \
+expect_output 0 "$CR_DENIED" "小文字・数字入りの環境変数前置でも gh を見失わない" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "x1=1 gh issue comment 1 --body '$CR_BODY $CR_PAD'"
 CR_GIST="gh gist create - <<'EOF'
 $CR_BODY
 $CR_PAD
 EOF"
-expect_output 0 "詰まり" "gist create - のヒアドキュメントもゲートに掛かる" \
+expect_output 0 "$CR_DENIED" "gist create - のヒアドキュメントもゲートに掛かる" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "$CR_GIST"
 # gh agent-task create(Copilot のエージェントに仕事を渡す)の説明は GitHub へ出る本文。位置引数と -F のファイル・標準入力を読む(頼み 76475f)
-expect_output 0 "詰まり" "gh agent-task create の位置引数の説明もゲートに掛かる" \
+expect_output 0 "$CR_DENIED" "gh agent-task create の位置引数の説明もゲートに掛かる" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh agent-task create --base main '$CR_BODY $CR_PAD'"
-expect_output 0 "詰まり" "gh agent-task の別名(gh agent create)の説明もゲートに掛かる" \
+expect_output 0 "$CR_DENIED" "gh agent-task の別名(gh agent create)の説明もゲートに掛かる" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh agent create '$CR_BODY $CR_PAD'"
-expect_output 0 "詰まり" "gh agent-task create -F - のヒアドキュメントもゲートに掛かる" \
+expect_output 0 "$CR_DENIED" "gh agent-task create -F - のヒアドキュメントもゲートに掛かる" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh agent-task create -F - <<'EOF'
 $CR_BODY
 $CR_PAD
@@ -2828,7 +2831,7 @@ expect_output 0 "ALLOW_EMPTY" "別コマンドの -b を gh の旗と誤認し�
 expect_output 0 "ALLOW_EMPTY" "引用の中の gh はコマンドと見なさない" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "grep -r 'gh issue comment --body' . # $CR_PAD"
 # --comment が真偽旗と分かっていないと、次の -b を値として食い、本文が位置引数に落ちて取りこぼす
-expect_output 0 "詰まり" "pr review の --comment は真偽旗なので後続の -b を本文として拾う" \
+expect_output 0 "$CR_DENIED" "pr review の --comment は真偽旗なので後続の -b を本文として拾う" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh pr review 12 --comment -b '$CR_BODY $CR_PAD'"
 expect_output 0 "ALLOW_EMPTY" "pr review の --comment 自体は本文扱いしない" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh pr review 12 --comment # $CR_PAD"
@@ -4515,36 +4518,36 @@ assert "git の管理の場所(.git の下)" in log and str(ledger) in log, ".gi
 print("DOCS_TMP_OK")
 PY
 # 旗表・帰属の各分岐を個別に殺すテスト(消すとどれか 1 件だけが赤くなる形にする)
-expect_output 0 "詰まり" "--旗=値 の密着形もゲートに掛かる" \
+expect_output 0 "$CR_DENIED" "--旗=値 の密着形もゲートに掛かる" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue comment 1 --body='$CR_BODY $CR_PAD'"
-expect_output 0 "詰まり" "-b 値 の密着形もゲートに掛かる" \
+expect_output 0 "$CR_DENIED" "-b 値 の密着形もゲートに掛かる" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue comment 1 -b'$CR_BODY $CR_PAD'"
-expect_output 0 "詰まり" "release create --notes 長形もゲートに掛かる" \
+expect_output 0 "$CR_DENIED" "release create --notes 長形もゲートに掛かる" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh release create v1 --notes '$CR_BODY $CR_PAD'"
-expect_output 0 "詰まり" "issue close -c 短縮形もゲートに掛かる" \
+expect_output 0 "$CR_DENIED" "issue close -c 短縮形もゲートに掛かる" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue close 9 -c '$CR_BODY $CR_PAD'"
-expect_output 0 "詰まり" "command 前置越しの gh もゲートに掛かる" \
+expect_output 0 "$CR_DENIED" "command 前置越しの gh もゲートに掛かる" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "command gh issue comment 1 --body '$CR_BODY $CR_PAD'"
-expect_output 0 "詰まり" "絶対パス起動の gh もゲートに掛かる" \
+expect_output 0 "$CR_DENIED" "絶対パス起動の gh もゲートに掛かる" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "/usr/local/bin/gh issue comment 1 --body '$CR_BODY $CR_PAD'"
-expect_output 0 "詰まり" "-R 前置があってもサブコマンドを見失わない" \
+expect_output 0 "$CR_DENIED" "-R 前置があってもサブコマンドを見失わない" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh -R o/r pr review 12 --comment -b '$CR_BODY $CR_PAD'"
-expect_output 0 "詰まり" "-H 前置があっても graphql の mutation を見逃さない" \
+expect_output 0 "$CR_DENIED" "-H 前置があっても graphql の mutation を見逃さない" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh api -H 'X-Foo: bar' graphql -f query='mutation { addComment(input:{body:\"$CR_BODY $CR_PAD\"}) }'"
 # リダイレクトは区切りではない(演算子と行き先だけを除く)。挟まれた本文を見失えば無検査で通る
-expect_output 0 "詰まり" "本文旗の直後のリダイレクトで本文を見失わない" \
+expect_output 0 "$CR_DENIED" "本文旗の直後のリダイレクトで本文を見失わない" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue comment 5 --body >&2 '$CR_BODY $CR_PAD'"
-expect_output 0 "詰まり" "2>&1 を挟んでも本文を見失わない" \
+expect_output 0 "$CR_DENIED" "2>&1 を挟んでも本文を見失わない" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh pr comment 123 --body 2>&1 '$CR_BODY $CR_PAD'"
-expect_output 0 "詰まり" "出力リダイレクト付きでも本文を見失わない" \
+expect_output 0 "$CR_DENIED" "出力リダイレクト付きでも本文を見失わない" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue comment 5 --body '$CR_BODY $CR_PAD' >/dev/null"
 # ヒアドキュメントのデリミタ記法(gh --help や人が実際に書く形)
-expect_output 0 "詰まり" '二重引用符デリミタのヒアドキュメントもゲートに掛かる' \
+expect_output 0 "$CR_DENIED" '二重引用符デリミタのヒアドキュメントもゲートに掛かる' \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue comment 1 --body-file - <<\"EOF\"
 $CR_BODY
 $CR_PAD
 EOF"
-expect_output 0 "詰まり" "ハイフン入りデリミタのヒアドキュメントもゲートに掛かる" \
+expect_output 0 "$CR_DENIED" "ハイフン入りデリミタのヒアドキュメントもゲートに掛かる" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue comment 1 --body-file - <<'JSON-EOF'
 $CR_BODY
 $CR_PAD
@@ -4569,11 +4572,11 @@ expect_output 0 "解析できない" "解析が例外で落ちても deny(fail-c
 expect_output 0 "ALLOW_EMPTY" "読み役の中では発火しない(入れ子を作らない)" \
     env COLDREAD_IN_READER=1 "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body '$CR_BODY $CR_PAD'"
 # 引用の中の ` や $( は展開されないので、本文の一部として読ませる(止めると普通の文章が通らない)
-expect_output 0 "詰まり" "コードフェンスで始まる本文も読み役に届く" \
+expect_output 0 "$CR_DENIED" "コードフェンスで始まる本文も読み役に届く" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue comment 1 --body '\`\`\`
 $CR_BODY $CR_PAD
 \`\`\`'"
-expect_output 0 "詰まり" "単一引用の中の \$( は展開されないので本文として読ませる" \
+expect_output 0 "$CR_DENIED" "単一引用の中の \$( は展開されないので本文として読ませる" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue comment 1 --body '\$(cat x) と書く。$CR_BODY $CR_PAD'"
 # ヒアドキュメントは付いた単純コマンドに帰属させる(同じ行の別コマンドの中身を巻き込まない)
 expect_output 0 "ALLOW_EMPTY" "別コマンドのヒアドキュメントを gh の本文に混ぜない" \
@@ -4584,7 +4587,7 @@ gh pr comment 123 -F - <<'BODY'
 短い本文
 BODY"
 # 解析器が読めなかったものは「投稿でない」ではなく「検査できない」に倒す(素通りにしない)
-expect_output 0 "詰まり" "融合形の global 旗(--repo=)でもサブコマンドを見失わない" \
+expect_output 0 "$CR_DENIED" "融合形の global 旗(--repo=)でもサブコマンドを見失わない" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh --repo=o/r issue comment 1 -b '$CR_BODY $CR_PAD'"
 expect_output 0 "取り出せない" "未クォートのコマンド置換は検査できないので deny" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body \$(cat /tmp/x) # $CR_PAD"
@@ -4592,7 +4595,7 @@ expect_output 0 "取り出せない" "バッククォートのコマンド置換
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body \`cat /tmp/x\` # $CR_PAD"
 expect_output 0 "取り出せない" "知らない旗でサブコマンドを特定できないときは deny" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh --unknown-flag=x issue comment 1 -b '$CR_BODY $CR_PAD'"
-expect_output 0 "詰まり" "project edit の --readme もゲートに掛かる" \
+expect_output 0 "$CR_DENIED" "project edit の --readme もゲートに掛かる" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh project edit 1 --readme '$CR_BODY $CR_PAD'"
 # mutation は body 以外のフィールドにもブロック文字列を書ける。中身を丸ごと本文として抜くと ID・
 # トークン・設定値まで読み役(外部プロセス)へ渡るので、body: のフィールドの値だけを抜く
@@ -4615,8 +4618,6 @@ expect_output 0 "ALLOW_EMPTY" "issue develop の -n(ブランチ名)は本文扱
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue develop 5 -n $CR_BODY$CR_PAD"
 expect_output 0 "ALLOW_EMPTY" "issue view の -c(--comments)は本文扱いしない" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue view 12 -c # $CR_PAD $CR_BODY"
-expect_output 0 "詰まり" "close の -c(--comment)は本文として拾う" \
-    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue close 9 -c '$CR_BODY $CR_PAD'"
 # gh api --input の中身は本文とは限らない(secrets の暗号値等)。.body を持つときだけ読ませる
 expect_output 0 "取り出せない" "api --input の .body でない長い JSON は読み役に送らず deny" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh api -X PUT /repos/o/r/actions/secrets/K --input - <<'EOF'
@@ -4651,10 +4652,10 @@ expect_output 0 "取り出せない" "--input - にヒアドキュメントが�
 # 行末が CRLF のヒアドキュメント。\n 固定で照合すると開始行・終端行ともマッチせず、正しく書いた
 # 投稿が「stdin 渡し」という嘘の理由で止まる(--body-file)か、無検査で通る(--input)
 CR_CRLF_FILE=$(printf 'gh issue comment 1 --body-file - <<'\''EOF'\''\r\n%s\r\n%s\r\nEOF\r\n' "$CR_BODY" "$CR_PAD")
-expect_output 0 "詰まり" "行末が CRLF のヒアドキュメントでも本文を取り出す" \
+expect_output 0 "$CR_DENIED" "行末が CRLF のヒアドキュメントでも本文を取り出す" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "$CR_CRLF_FILE"
 CR_CRLF_INPUT=$(printf 'gh api repos/o/r/issues/1/comments --input - <<'\''EOF'\''\r\n{"body": "%s%s"}\r\nEOF\r\n' "$CR_BODY" "$CR_PAD")
-expect_output 0 "詰まり" "CRLF のヒアドキュメントを --input - で渡しても本文を検査する" \
+expect_output 0 "$CR_DENIED" "CRLF のヒアドキュメントを --input - で渡しても本文を検査する" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "$CR_CRLF_INPUT"
 expect_output 0 "取り出せない" "-F(--body-file 短縮形)の本文ファイルが無ければ止める" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh pr create -t T -F $CR_NOFILE/body.md # $CR_PAD"
@@ -4672,7 +4673,7 @@ expect_output 0 "coldreader(文脈ゼロの読み手)の起動に失敗" "読み
     "$CR_CASE" "$CR_CFG" "$CR_STUB_SJIS" "$CR_POST"
 # stdio の UTF-8 固定を OS 非依存で検査する(reconfigure が消えると cp1252 強制下で
 # UnicodeEncodeError → exit 1 = フック素通りになり、この 1 件が赤くなる)
-expect_output 0 "詰まり" "stdio を cp1252 に強制しても deny 文言が出る" \
+expect_output 0 "$CR_DENIED" "stdio を cp1252 に強制しても deny 文言が出る" \
     env PYTHONIOENCODING=cp1252 "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "$CR_POST"
 
 # 連続 deny: 専用 config で履歴を隔離し「ちょうど 3 回目」で知らせる境界を検査する。往復の上限は置かない(持ち主 2026-10-17)
@@ -5517,9 +5518,9 @@ expect_output 0 "取り出せない" "|| の先の代入は効くかどうかが
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "true || B='$CR_BODY $CR_PAD'; gh issue comment 1 --body \"\$B\""
 expect_output 0 "取り出せない" "本文の一部に変数が混じる二重引用の本文(\"See: \$B\")は止める" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "B=\"\$(cat $CR_FDIR/b/body.md)\"; gh issue comment 1 --body \"See: \$B\""
-expect_output 0 "詰まり" "単一引用の中の \$ は字のままなので、本文として読ませる" \
+expect_output 0 "$CR_DENIED" "単一引用の中の \$ は字のままなので、本文として読ませる" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue comment 1 --body '\$HOME は展開されない。$CR_BODY $CR_PAD'"
-expect_output 0 "詰まり" "if・while・until の直後の gh もゲートに掛かる" \
+expect_output 0 "$CR_DENIED" "if・while・until の直後の gh もゲートに掛かる" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "if gh issue comment 1 --body '$CR_BODY $CR_PAD'; then echo ok; fi"
 CR_STUB_SEES_TAIL=$(cr_stub_sees MARK_TAIL)
 expect_output 0 "MARK_TAIL が届いた" "<<EOF(- の無い形)は字下げした区切りの行で終わらない(本文の続きまで読ませる)" \
@@ -5531,11 +5532,11 @@ EOF"
 expect_output 0 "取り出せない" "繰り返しの中では、gh の後のコマンドも次の gh の前に走るので書き手に数える" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "for i in 1 2; do gh issue comment 1 --body-file $CR_FDIR/body.md; cp $CR_FDIR/b/body.md $CR_FDIR/body.md; done"
 # 4. ヒアドキュメントの開始行で、区切りの後ろに同じ行で文字が続く形を見落とし、「別プロセスからの stdin」で誤って止めていた
-expect_output 0 "詰まり" "区切りの後ろに旗が続くヒアドキュメント(<<'J' -q .html_url)も本文として読む" \
+expect_output 0 "$CR_DENIED" "区切りの後ろに旗が続くヒアドキュメント(<<'J' -q .html_url)も本文として読む" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh api repos/o/r/issues/1/comments --input - <<'J' -q .html_url
 {\"body\": \"$CR_BODY $CR_PAD\"}
 J"
-expect_output 0 "詰まり" "区切りの後ろにパイプが続くヒアドキュメント(<<'EOF' | tail)も本文として読む" \
+expect_output 0 "$CR_DENIED" "区切りの後ろにパイプが続くヒアドキュメント(<<'EOF' | tail)も本文として読む" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue comment 1 --body-file - <<'EOF' | tail -1
 $CR_BODY $CR_PAD
 EOF"
@@ -5547,9 +5548,9 @@ A
 MARK_B $CR_BODY $CR_PAD
 B"
 # 5. timeout の前置で gh が見えず素通しだった
-expect_output 0 "詰まり" "timeout 180 の前置でも gh を見失わない" \
+expect_output 0 "$CR_DENIED" "timeout 180 の前置でも gh を見失わない" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "timeout 180 gh pr create --title t --body '$CR_BODY $CR_PAD'"
-expect_output 0 "詰まり" "timeout の -s・-k の値と長さを読み飛ばしても gh を見失わない" \
+expect_output 0 "$CR_DENIED" "timeout の -s・-k の値と長さを読み飛ばしても gh を見失わない" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "timeout -s KILL -k 5 2m gh pr create --title t --body '$CR_BODY $CR_PAD'"
 # 6. misses.log: 短いコマンドも記録し、ヒアドキュメントの中身は見ず、当たった単純コマンドの先頭の語を添える
 CR_MISS_CFG="$WORK/coldread-cfg-miss"; mkdir -p "$CR_MISS_CFG"
