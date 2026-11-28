@@ -6,6 +6,8 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+## [0.52.0] - 2026-11-28
+
 ### Changed
 
 - 役の返答を読めないときに engine が役へ返す拒否の文（空の返答・JSON として読めない返答の見出しと「よくある原因」の行）を `engine/commands.py` の定数にし、`tests/py/test_engine_parts.py` の 3 本が字を写さずに定数から引く形に替えた。役に返す字は変わらない。
