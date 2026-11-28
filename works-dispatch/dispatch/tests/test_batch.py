@@ -182,8 +182,7 @@ class Bundle(LandCase):
         tickets = self.wait("b", "c")
         code, out = self.land(self.w, self.ports, checker=self.checker(), name="a")
         self.assertEqual(code, 0, out)
-        self.assertIn("束: a と b・c の 3 本を、1 回のゲートで入れる", out)
-        self.assertEqual(len(self.gates), 1)
+        self.assertEqual(len(self.gates), 1)   # 3 本を 1 回のゲートで入れる（束の並びは下の record の members で見る）
         cwd, env = self.gates[0]
         self.assertNotEqual(os.path.realpath(cwd), os.path.realpath(self.w.dept))   # 一時の場所で回す
         ((_, record),) = landqueue.batches(self.queue)
@@ -200,14 +199,14 @@ class Bundle(LandCase):
         self.leave(tickets["b"])
         code, out = self.land(self.w, self.ports, checker=self.checker(), name="b")
         self.assertEqual(code, 0, out)
-        self.assertIn("束（束ね役 a）でメインブランチに入った", out)
         self.assertEqual(len(self.gates), 1)
         self.assertEqual(gitx.rev(self.places["b"], "HEAD"), stacked["b"])
         self.assertEqual(len(landqueue.batches(self.queue)), 1)   # c がまだ受け取っていない
         # c は待ち受けの追いつき（follow_main）で受け取る
         self.leave(tickets["c"])
         said = wake_hook.adopt_batch({"root": self.w.source, "cwd": self.places["c"]}, {"role": "worker"}, "main")
-        self.assertIn("束（束ね役 a）でメインブランチに入った中身を受け取った", said)
+        self.assertIsNotNone(said)   # 受け取る物が無ければ None
+        self.assertIn(stacked["c"][:7], said)   # 替えた写しの先頭
         self.assertEqual(gitx.rev(self.places["c"], "HEAD"), stacked["c"])
 
     def test_a_conflicting_rider_closes_the_batch_and_later_tickets_do_not_overtake(self):
@@ -217,9 +216,8 @@ class Bundle(LandCase):
         self.wait("b", "c")
         code, out = self.land(self.w, self.ports, checker=self.checker(), name="a")
         self.assertEqual(code, 0, out)
-        self.assertIn("束: 札 b で閉じた（ぶつかる（x.txt））", out)
-        self.assertIn("乗せられる札が無いので、1 本で通す", out)
-        self.assertEqual(self.gates[0][1][landing.WORKS_LAND_KEY], "feat/a")
+        self.assertIn("x.txt", out)   # ぶつかるファイルを名指す
+        self.assertEqual([e[landing.WORKS_LAND_KEY] for _, e in self.gates], ["feat/a"])   # 束の印の無い 1 本のゲートだけ
         self.assertFalse(self.on_main("c.txt"))
         self.assertEqual(landqueue.batches(self.queue), [])
 
@@ -228,7 +226,7 @@ class Bundle(LandCase):
         self.wait("b", "c")
         code, out = self.land(self.w, self.ports, checker=self.checker(red=True), name="a")
         self.assertEqual(code, 0, out)
-        self.assertIn("束が赤だったので束をほどき", out)
+        # 束のゲートが赤なら、束をほどいて束ね役だけを 1 本のゲートで通す
         self.assertEqual([e[landing.WORKS_LAND_KEY] for _, e in self.gates], ["feat/a batch", "feat/a"])
         self.assertTrue(self.on_main("a.txt"))
         self.assertFalse(self.on_main("b.txt"))
@@ -245,8 +243,7 @@ class Bundle(LandCase):
         self.leave(tickets["b"])
         code, out = self.land(self.w, self.ports, checker=self.checker(), name="b")
         self.assertEqual(code, 0, out)
-        self.assertIn("その後の commit を移した", out)
-        self.assertTrue(self.on_main("d.txt"))
+        self.assertTrue(self.on_main("d.txt"))   # 束の後の commit を写しの上へ移して入れた（下の HEAD~1 が写し）
         self.assertEqual(git("-C", self.places["b"], "rev-parse", "HEAD~1"), stacked)
         self.assertEqual(landqueue.batches(self.queue), [])
 
@@ -260,7 +257,8 @@ class Bundle(LandCase):
         self.work("a", "e.txt")
         code, out = self.land(self.w, self.ports, checker=self.checker(), name="a")
         self.assertEqual(code, 0, out)
-        self.assertNotIn("束（束ね役", out)
+        # 受け取り（ゲートを回さない）でなく、いつもの道で自分のゲートを 1 回回す（b の札は受け取っていないので束に乗らない）
+        self.assertEqual([e[landing.WORKS_LAND_KEY] for _, e in self.gates], ["feat/a batch", "feat/a"])
         self.assertTrue(self.on_main("e.txt"))
         self.assertEqual(self.g_base("a"), git("--git-dir", self.w.remote, "rev-parse", "refs/heads/main"))
 
@@ -272,15 +270,24 @@ class Bundle(LandCase):
         open(os.path.join(self.queue, head), "w").close()
         write(os.path.join(self.queue, head + landqueue.WHO), "z\nfeat/z\n")
         self.wait("b", "c")
-        lines = landorder.rows(self.queue, self.w.source, "main", gitx, limit=3)
-        self.assertNotIn("次の束", lines[0])
-        self.assertIn("次の束の束ね役（見込み）", lines[1])
-        self.assertIn("次の束に乗る見込み", lines[2])
-        self.assertNotIn("次の束", "".join(landorder.rows(self.queue, self.w.source, "main", gitx)))
+        # 見込みの決め方は Select.test_upcoming_estimates_the_next_batch_from_names_and_marks が表で見る。ここは、rows が upcoming の
+        # 答えをどの札の行に結ぶかを見る: 束の上限 1（印を付けない）の行と比べ、先頭で進む札 z には何も足さず、次の束の札 b・c にだけ
+        # 印を足し、束ね役 b と乗る c とで印が違う
+        now = time.time()
+        plain = landorder.rows(self.queue, self.w.source, "main", gitx, now=now)
+        lines = landorder.rows(self.queue, self.w.source, "main", gitx, now=now, limit=3)
+        self.assertEqual(len(lines), 3)
+        self.assertEqual(lines[0], plain[0])
+        self.assertIn("feat/z", lines[0])
+        marks = []
+        for i, branch in ((1, "feat/b"), (2, "feat/c")):
+            self.assertIn(branch, lines[i])
+            self.assertTrue(lines[i].startswith(plain[i] + "、"), (lines[i], plain[i]))
+            marks.append(lines[i][len(plain[i]) + 1:])
+        self.assertNotEqual(marks[0], marks[1])
         code, out = self.land(self.w, self.ports, name="a", dry_run=True)
         self.assertEqual(code, 0, out)
-        self.assertIn("束: 上限 3 本", out)
-        self.assertIn("次の束の見込み: b・c", out)
+        self.assertRegex(out, r"z[^\n]*b・c")   # 先頭で進む札 z と、上限 3 本で見積もった次の束 b・c を名指す
 
 
 class GitBoundary(LandCase):

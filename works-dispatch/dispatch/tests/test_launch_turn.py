@@ -193,24 +193,29 @@ class Turn(unittest.TestCase):
                                    ("prompt", "wB:p1", turn.with_carry(SECOND, CATCHUP), False)])
 
     def test_second_ends_with_the_carry_line_on_the_same_line(self):
-        # 2 ターン目の文はそのまま先に置き、後ろに引き継ぎの一言を空白 1 つでつなぐ（改行を足すとペインで途中送信になる）
+        # 2 ターン目の文はそのまま先に置き、後ろに引き継ぎの一言を空白 1 つでつなぐ（改行を足すとペインで途中送信になる）。一言の言い回しは
+        # 会話だけが読むので見ず、2 ターン目の文が先に来ること・同じ行につなぐこと・1 ターン目のコマンドの名前が届くことを見る
         got = turn.with_carry("/attention:my-turn\n", "/watch:catchup")
-        self.assertEqual(got, "/attention:my-turn この会話の前のターン（/watch:catchup）で調べた物は、材料として引き継いでよい。"
-                              "取り直すのは、前のターンの後に変わった物と、前のターンで調べていない物だけ。"
-                              "前のターンで問うた事と、いま問う事が違えば調べ直す。")
+        self.assertTrue(got.startswith("/attention:my-turn "), got)
         self.assertNotIn("\n", got)
+        carry = got[len("/attention:my-turn "):]
+        self.assertIn("/watch:catchup", carry)
+        self.assertNotEqual(carry.strip(), "/watch:catchup")   # 名前だけでなく一言が足されている
         self.assertNotIn("my-turn", turn.CARRY)
 
     def test_the_earlier_report_line_follows_on_the_same_line_only_when_there_is_one(self):
+        base = turn.with_carry("/attention:my-turn", "/watch:catchup")
+        self.assertEqual(turn.with_carry("/attention:my-turn\n", "/watch:catchup", None), base)   # 報告が無ければ足さない
+        self.assertNotIn("/g/works-dispatch/reports/s1.md", base)
         got = turn.with_carry("/attention:my-turn\n", "/watch:catchup", "/g/works-dispatch/reports/s1.md")
-        self.assertEqual(got, turn.with_carry("/attention:my-turn", "/watch:catchup")
-                         + " 前にこの PR を開いた会話の報告（GitHub に出していない発見を含みうる）を /g/works-dispatch/reports/s1.md に"
-                           "残した。前の回の発見として読んでよい。")
+        self.assertTrue(got.startswith(base + " "), got)   # 引き継ぎの一言の後ろに、同じ行で続ける
+        self.assertIn("/g/works-dispatch/reports/s1.md", got[len(base):])
         self.assertNotIn("\n", got)
         self.assertNotIn("my-turn", turn.EARLIER)
         h = FakeHerdr(prompts=["idle", "sent"])
         self.assertEqual(turn.catchup_then_second(7, "wB:p1", SECOND, h, catchup=CATCHUP, earlier="/r.md"), "sent")
         self.assertEqual(h.calls[1][2], turn.with_carry(SECOND, CATCHUP, "/r.md"))
+        self.assertIn("/r.md", h.calls[1][2])
 
     def test_keep_report_writes_the_last_answer_of_each_turn_after_catchup(self):
         d = scratch()
@@ -269,18 +274,13 @@ class Turn(unittest.TestCase):
         turn.catchup_then_second(7, "p", None, h, catchup="/watch:catchup")
         self.assertEqual(h.calls, [("prompt", "p", "/watch:catchup 7", False)])
 
-    def test_done_also_sends_second(self):
-        self.assertEqual(turn.catchup_then_second(7, "p", SECOND, FakeHerdr(prompts=["done", "sent"]), catchup=CATCHUP), "sent")
-
-    def test_blocked_does_not_send_second(self):
-        h = FakeHerdr(prompts=["blocked"])
-        self.assertEqual(turn.catchup_then_second(7, "p", SECOND, h, catchup=CATCHUP), "blocked")
-        self.assertEqual(len(h.calls), 1)
-
-    def test_stalled_does_not_send_second(self):
-        h = FakeHerdr(prompts=["stalled"])
-        self.assertEqual(turn.catchup_then_second(7, "p", SECOND, h, catchup=CATCHUP), "stalled")
-        self.assertEqual(len(h.calls), 1)
+    def test_the_second_goes_only_after_a_first_turn_that_ends(self):
+        # 1 ターン目の結末の表。終わった（idle・done）なら 2 ターン目を送り、確かめの画面（blocked）か止まった（stalled）なら送らずに返す
+        for first, want, sends in (("idle", "sent", 2), ("done", "sent", 2), ("blocked", "blocked", 1), ("stalled", "stalled", 1)):
+            with self.subTest(first=first):
+                h = FakeHerdr(prompts=[first, "sent"])
+                self.assertEqual(turn.catchup_then_second(7, "p", SECOND, h, catchup=CATCHUP), want)
+                self.assertEqual(len([c for c in h.calls if c[0] == "prompt"]), sends)
 
     def test_herdr_error_is_send_failed(self):
         self.assertEqual(turn.catchup_then_second(7, "p", SECOND, FakeHerdr(prompt_error="boom"), catchup=CATCHUP), "send_failed")

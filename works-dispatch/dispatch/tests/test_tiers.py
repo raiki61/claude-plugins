@@ -18,6 +18,14 @@ def result(*bad):
     return {"schema": 1, "tier": 2, "ok": not bad, "missing": len(bad), "checks": checks}
 
 
+def entry_line(case, line):
+    """足りないツールの並びの後に付く案内の行。言い回しは人が読むだけなので見ず、人が打つ入口（/tiers:check）と、会話が Bash のツールで
+    打てる入口（tiers --tier 2。部署の回が要る段）を名指すことと、ツールの行（「- 」の頭）でないことを見る。"""
+    case.assertFalse(line.startswith("-"), line)
+    case.assertIn("/tiers:check", line)
+    case.assertIn("tiers --tier 2", line)
+
+
 class CheckCallsTiers(unittest.TestCase):
     def setUp(self):
         self.cfg, self.root = make_cfg()
@@ -58,7 +66,8 @@ class CheckCallsTiers(unittest.TestCase):
         at = lines.index("- 段 1 herdr: herdr が無い（入れ方（手で）: herdr を入れる）")
         self.assertEqual(lines[at + 1:at + 4], ["  - herdr を入れる前に読む", "  - 入ったかは herdr --version で確かめる",
                                                 "- 段 1 gh: gh が無い（入れ方（手で）: gh を入れる）"])
-        self.assertEqual(lines[at + 4], "詳しい案内は /tiers:check（人が打つ）か tiers --tier 2（会話の Bash のツールで打つ）で見られる")
+        # 足りないツールの並びの直ぐ後に、案内の行が続く
+        entry_line(self, lines[at + 4])
 
     def test_launch_commands_of_the_accounts_are_passed(self):
         ports = self.ports(result())
@@ -137,8 +146,9 @@ class Check(unittest.TestCase):
         got = tierx.check([], env={"PATH": ""}, runner=run)
         self.assertEqual(tierx.problems(got), ["段 1 herdr: herdr が無い（入れ方（手で）: herdr を入れる）"])
         # guide の無い前の版の tiers（0.1.1 まで）でも、案内の行を出さずに読める
-        self.assertEqual(tierx.report(got), ["- 段 1 herdr: herdr が無い（入れ方（手で）: herdr を入れる）",
-                                             "詳しい案内は /tiers:check（人が打つ）か tiers --tier 2（会話の Bash のツールで打つ）で見られる"])
+        report = tierx.report(got)
+        self.assertEqual(report[:-1], ["- 段 1 herdr: herdr が無い（入れ方（手で）: herdr を入れる）"])
+        entry_line(self, report[-1])
         self.assertEqual(tierx.report(result()), [])
 
     def test_not_json_or_other_shape_is_an_error(self):

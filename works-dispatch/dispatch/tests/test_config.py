@@ -100,16 +100,49 @@ class Load(unittest.TestCase):
         self.assertFalse(hasattr(cfg, "reset_soon_hours"))
         self.assertTrue(any("reset_soon_hours" in n for n in cfg.notes), cfg.notes)
 
-    def test_move_early_values_are_read_and_checked(self):
-        body = f'[[repos]]\nrepo = "o/r"\nsecond_prompt_file = \'{self.d}/second.md\'\nsource = "s"\n'
-        cfg = config.load(write(self.d, "c.toml", body), env={})
-        self.assertEqual((cfg.early_percent, cfg.early_reset_hours), (90, 1.0))
-        cfg = config.load(write(self.d, "c.toml", "move_early_percent = 80\nmove_early_reset_hours = 2\n" + body), env={})
-        self.assertEqual((cfg.early_percent, cfg.early_reset_hours), (80, 2))
-        for key, bad in (("move_early_percent", '"90"'), ("move_early_percent", "true"), ("move_early_reset_hours", "-1")):
-            with self.assertRaises(config.ConfigError) as e:
-                config.load(write(self.d, "c.toml", f"{key} = {bad}\n" + body), env={})
-            self.assertIn(key, str(e.exception))
+    # 設定の鍵の読みの表。1 行 = 鍵の名・値を入れる本文の頭（{v} に値が入る。[[repos]] の前に置く）・良い値・読んだ値の取り出し・期待・
+    # 既定（鍵を書かない本文の読み。None は見ない）・悪い値と、断り（ConfigError）の文に出るべき字の組の並び。鍵を足したら行を足す
+    KEYS = (
+        # NIM（弱いモデルへ読み替わる中継）を名指しのときだけ使う。受付 20261021-031828-b45260
+        ("named_only",
+         'accounts = [{{ name = "p1", command = "c1" }}, {{ name = "nim", command = "claude-nim", config_dir = "~/.claude-nim", limits = false{v} }}]\n',
+         ", named_only = true", lambda c: [a.named_only for a in c.accounts], [False, True], [False, False],
+         ((', named_only = "yes"', "accounts[1]: named_only が true か false で無い"),)),
+        # 名指しで部署を立てるとき、そのアカウントに開いていてよい会話の数。既定 1。my_notes の受付 20261021-063439-aee108
+        ("max_open",
+         'accounts = [{{ name = "p1", command = "c1" }}, {{ name = "f", command = "cf", limits = false{v} }}]\n',
+         ", max_open = 4", lambda c: [a.max_open for a in c.accounts], [1, 4], [1, 1],
+         tuple((f", max_open = {bad}", "accounts[1]: max_open が 1 以上の整数で無い") for bad in ("0", "true", '"4"', "1.5"))),
+        ("token_file",
+         'accounts = [{{ name = "p1", command = "claude-p1"{v} }}]\n',
+         ', token_file = "~/.config/claude-tokens/p1"', lambda c: c.accounts[0].token_file, os.path.expanduser("~/.config/claude-tokens/p1"), None,
+         tuple((f", token_file = {bad}", "accounts[0]: token_file が空でない文字列で無い") for bad in ("1", '""'))),
+        # ログインの記録からプランが読めないアカウント（setup-token の鍵だけで動く物）に、持ち主が教えたプランを書く
+        ("plan",
+         'accounts = [{{ name = "p2", command = "claude-p2"{v} }}]\n',
+         ', plan = "default_claude_max_20x"', lambda c: c.accounts[0].plan, "default_claude_max_20x", None,
+         ((', plan = ""', "accounts[0]: plan"), (", plan = 20", "accounts[0]: plan"), (', plan = "Max 20x"', "default_claude_max_20x"),
+          (', plan = "x", limits = false', "limits = false"))),
+        ("move_early_percent", "{v}\n", "move_early_percent = 80", lambda c: c.early_percent, 80, 90,
+         (('move_early_percent = "90"', "move_early_percent"), ("move_early_percent = true", "move_early_percent"))),
+        ("move_early_reset_hours", "{v}\n", "move_early_reset_hours = 2", lambda c: c.early_reset_hours, 2, 1.0,
+         (("move_early_reset_hours = -1", "move_early_reset_hours"),)),
+    )
+
+    def test_keys_are_read_and_bad_values_are_named(self):
+        repos = f'[[repos]]\nrepo = "o/r"\nsecond_prompt_file = \'{self.d}/second.md\'\nsource = "s"\n'
+        for key, head, good, read, want, default, bads in self.KEYS:
+            with self.subTest(key=key):
+                cfg = config.load(write(self.d, "c.toml", head.format(v=good) + repos), env={})
+                self.assertEqual(read(cfg), want)
+                self.assertEqual(cfg.notes, ())   # 知っている鍵なので、知らない鍵の注記を出さない
+                if default is not None:
+                    self.assertEqual(read(config.load(write(self.d, "c.toml", head.format(v="") + repos), env={})), default)
+            for bad, word in bads:
+                with self.subTest(key=key, bad=bad):
+                    with self.assertRaises(config.ConfigError) as e:
+                        config.load(write(self.d, "c.toml", head.format(v=bad) + repos), env={})
+                    self.assertIn(word, str(e.exception))
 
     def test_account_kinds(self):
         # アカウントの持ち方は人で違う。claude そのまま／設定のフォルダ＋自分で作った Keychain の項目／使用率の枠の無いもの（Ollama・Foundry など）
@@ -165,41 +198,6 @@ class Load(unittest.TestCase):
             config.load(write(self.d, "c.toml", "hours_margin_minutes = 480\n" + body), env={})
         self.assertIn("一度も選ばれない", str(e.exception))
 
-    def test_named_only_is_read_and_checked(self):
-        # NIM（弱いモデルへ読み替わる中継）を名指しのときだけ使う。受付 20261021-031828-b45260
-        repos = f'[[repos]]\nrepo = "o/r"\nsecond_prompt_file = \'{self.d}/second.md\'\nsource = "s"\n'
-        body = ('accounts = [{ name = "p1", command = "c1" },'
-                ' { name = "nim", command = "claude-nim", config_dir = "~/.claude-nim", limits = false, named_only = true }]\n' + repos)
-        cfg = config.load(write(self.d, "c.toml", body), env={})
-        self.assertEqual([a.named_only for a in cfg.accounts], [False, True])
-        self.assertEqual(cfg.notes, ())   # 知らない鍵の注記を出さない
-        with self.assertRaises(config.ConfigError) as e:
-            config.load(write(self.d, "c.toml", body.replace("named_only = true", 'named_only = "yes"')), env={})
-        self.assertIn("accounts[1]: named_only が true か false で無い", str(e.exception))
-
-    def test_max_open_is_read_and_checked(self):
-        # 名指しで部署を立てるとき、そのアカウントに開いていてよい会話の数。既定 1。my_notes の受付 20261021-063439-aee108
-        repos = f'[[repos]]\nrepo = "o/r"\nsecond_prompt_file = \'{self.d}/second.md\'\nsource = "s"\n'
-        body = 'accounts = [{ name = "p1", command = "c1" }, { name = "f", command = "cf", limits = false, max_open = 4 }]\n' + repos
-        cfg = config.load(write(self.d, "c.toml", body), env={})
-        self.assertEqual([a.max_open for a in cfg.accounts], [1, 4])
-        self.assertEqual(cfg.notes, ())
-        for bad in ("0", "true", '"4"', "1.5"):
-            with self.assertRaises(config.ConfigError) as e:
-                config.load(write(self.d, "c.toml", body.replace("max_open = 4", f"max_open = {bad}")), env={})
-            self.assertIn("accounts[1]: max_open が 1 以上の整数で無い", str(e.exception))
-
-    def test_token_file_is_read_and_expanded(self):
-        body = ('accounts = [{ name = "p1", command = "claude-p1", token_file = "~/.config/claude-tokens/p1" }]\n'
-                f'[[repos]]\nrepo = "o/r"\nsecond_prompt_file = \'{self.d}/second.md\'\nsource = "s"\n')
-        cfg = config.load(write(self.d, "c.toml", body), env={})
-        self.assertEqual(cfg.accounts[0].token_file, os.path.expanduser("~/.config/claude-tokens/p1"))
-        self.assertEqual(cfg.notes, ())   # 知らない項目の注記に出ない
-        for bad in ("1", '""'):
-            with self.assertRaises(config.ConfigError) as e:
-                config.load(write(self.d, "c.toml", body.replace('"~/.config/claude-tokens/p1"', bad)), env={})
-            self.assertIn("accounts[0]: token_file が空でない文字列で無い", str(e.exception))
-
     def test_account_field_types_are_checked(self):
         body = ('accounts = [{ name = "a", command = "c", keychain_service = 1, limits = "no" }]\n'
                 f'[[repos]]\nrepo = "o/r"\nsecond_prompt_file = \'{self.d}/second.md\'\nsource = "s"\n')
@@ -222,19 +220,6 @@ class Load(unittest.TestCase):
         with self.assertRaises(config.ConfigError) as e:
             config.load(write(self.d, "c.toml", body), env={})
         self.assertIn("accounts[1]: name の a が accounts[0] と重なる", str(e.exception))
-
-    def test_plan_is_told_per_account(self):
-        # ログインの記録からプランが読めないアカウント（setup-token の鍵だけで動く物）に、持ち主が教えたプランを書く
-        repo = f'[[repos]]\nrepo = "o/r"\nsecond_prompt_file = \'{self.d}/second.md\'\nsource = "s"\n'
-        body = 'accounts = [{ name = "p2", command = "claude-p2", plan = "default_claude_max_20x" }]\n' + repo
-        cfg = config.load(write(self.d, "c.toml", body), env={})
-        self.assertEqual(cfg.accounts[0].plan, "default_claude_max_20x")
-        for bad, word in (('plan = ""', "plan"), ("plan = 20", "plan"), ('plan = "Max 20x"', "default_claude_max_20x"), ('plan = "x", limits = false', "limits = false")):
-            with self.subTest(bad=bad):
-                body = f'accounts = [{{ name = "a", command = "c", {bad} }}]\n' + repo
-                with self.assertRaises(config.ConfigError) as e:
-                    config.load(write(self.d, "c.toml", body), env={})
-                self.assertIn(word, str(e.exception))
 
     def test_tilde_is_expanded(self):
         body = ('[[repos]]\nrepo = "o/r"\nsecond_prompt_file = \'%s/second.md\'\n'

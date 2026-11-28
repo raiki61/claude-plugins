@@ -512,28 +512,35 @@ class FastForwardAfterCi(LandCase):
         git("-C", w.source, "config", "--local", "extensions.worktreeConfig", "true")
         git("-C", w.source, "config", "--worktree", "company.name", "窓口")
         w.work()
-        with mock.patch.object(land, "advance_local", side_effect=gitx.GitError("進められない")):
-            code, out = self.land(w, Ports(w))
+        ports = Ports(w)
+        ports.git = StuckLocalMain()   # 本物の git のうち、代表の clone のメインブランチを進める所だけが誤りを返す
+        code, out = self.land(w, ports)
         self.assertEqual(code, 0, out)
         self.assertIn("手元の main: そろえられなかった: 進められない", out)
         self.assertIn("窓口 src/窓口 に台帳の知らせで渡した", out)
 
     def test_land_follows_the_pushed_commit_even_when_fetch_fails_after_the_push(self):
         # push の後の取り直しが一時に落ちても、push した commit は手元に在るので、窓口を起動せずに代表の clone を進める
+        # 偽物の git に「origin のメインブランチへ push した後の取り直し（fetch）は落ちる」を持たせる（取り直しを呼ぶ回数に頼らない）
         w = FakeWorld(self.tmp, CI_FILES)
         head = w.work()
-        real = land.refresh
-        calls = []
+        real_push, real_fetch, pushed = w.g.push, w.g.fetch, []
 
-        def flaky(source, main, g):
-            calls.append(1)
-            if len(calls) == 3:   # メインブランチの取り直しは、頭・ゲートの後・push の後の 3 回目
+        def push(cwd, sha, ref, force=False):
+            real_push(cwd, sha, ref, force=force)
+            if ref == "main":
+                pushed.append(sha)
+
+        def fetch(cwd, branch):
+            if pushed:
                 raise gitx.GitError("ネットワークが無い")
-            return real(source, main, g)
-        with mock.patch.object(land, "refresh", side_effect=flaky):
-            code, out = self.land(w, FakePorts(w))
+            return real_fetch(cwd, branch)
+        w.g.push, w.g.fetch = push, fetch
+        code, out = self.land(w, FakePorts(w))
         self.assertEqual(code, 0, out)
-        self.assertIn("ネットワークが無い", out)
+        self.assertEqual(w.origin("main"), head)   # push は通った
+        self.assertTrue(pushed)
+        self.assertIn("ネットワークが無い", out)   # 取り直せなかった訳を添える
         self.assertIn("手元の main: updated", out)
         self.assertEqual(w.g.local["main"], head)
 
@@ -1331,14 +1338,28 @@ class Rules(unittest.TestCase):
             self.assertEqual(got["mode"], "ff-after-ci")
 
     def test_problems(self):
-        self.assertTrue(self.read('[land]\nmode = "merge"\n')["problems"])
-        self.assertTrue(self.read('[land]\nmode = "ff-after-ci"\ngate = "check"\n')["problems"])
-        self.assertTrue(self.read('[land]\nmode = "ff-after-ci"\ngate = "release"\n')["problems"])
-        self.assertTrue(self.read('[land]\nmode = "ff-after-ci"\ngate = "*"\n')["problems"])
-        self.assertTrue(self.read('[land]\nmode = "ff-after-ci"\ngate = "release-*"\n')["problems"])
-        self.assertTrue(self.read('[land]\nmode = "pr"\nbump = "npm"\n')["problems"])
-        self.assertTrue(self.read('[land]\nmode = 3\n')["problems"])
-        self.assertTrue(self.read('[land\n')["problems"])
+        # 悪い設定と、問題の文が名指すべき鍵の表。どれも問題は 1 件だけで、狙いの鍵で止まる（別の理由で止まって緑にならない）。
+        # 境目の良い形（release/* と、check に手元の検証のコマンドを添えた形）は問題を出さない
+        cases = (
+            ('[land]\nmode = "merge"\n', "land.mode"),
+            ('[land]\nmode = "ff-after-ci"\n', "land.gate"),
+            ('[land]\nmode = "ff-after-ci"\ngate = "check"\n', "land.check"),
+            ('[land]\nmode = "ff-after-ci"\ngate = "release"\n', "land.gate"),
+            ('[land]\nmode = "ff-after-ci"\ngate = "*"\n', "land.gate"),
+            ('[land]\nmode = "ff-after-ci"\ngate = "release-*"\n', "land.gate"),
+            ('[land]\nmode = "pr"\nbump = "npm"\n', "land.bump"),
+            ('[land]\nmode = 3\n', "land の mode"),
+            ('[land\n', "TOML"),
+        )
+        for text, key in cases:
+            with self.subTest(text=text):
+                problems = self.read(text)["problems"]
+                self.assertEqual(len(problems), 1, problems)
+                self.assertIn(key, problems[0])
+        for text in ('[land]\nmode = "ff-after-ci"\ngate = "release/*"\n', '[land]\nmode = "ff-after-ci"\ngate = "check"\ncheck = "true"\n',
+                     '[land]\nmode = "pr"\nbump = "marketplace"\n'):
+            with self.subTest(text=text):
+                self.assertEqual(self.read(text)["problems"], [])
 
     def test_gate_branch(self):
         self.assertEqual(land.gate_branch("release/*", "land", "feat/company-land"), "release/land")
@@ -1419,6 +1440,41 @@ class WatchRun(unittest.TestCase):
 QUEUE_RULES = '[land]\nmode = "ff-after-ci"\ngate = "check"\ncheck = "true"\nqueue = "land-queue"\n'
 
 
+def recorder(events, lock):
+    """起きた事を (スレッドの名前, 何) で events に足す関数を返す。"""
+    def note(what):
+        with lock:
+            events.append((threading.current_thread().name, what))
+    return note
+
+
+def watch_git(g, note):
+    """偽物の git g の上で、origin のメインブランチ（main）の取り直し（fetch）を "refresh"、push を "push"（push が通った後）と記録する。
+    land の中の関数の名前に頼らず、git に届いた操作で順を見る。"""
+    real_fetch, real_push = g.fetch, g.push
+
+    def fetch(cwd, branch):
+        if branch == "main":
+            note("refresh")
+        return real_fetch(cwd, branch)
+
+    def push(cwd, sha, ref, force=False):
+        real_push(cwd, sha, ref, force=force)
+        if ref == "main":
+            note("push")
+    g.fetch, g.push = fetch, push
+
+
+class StuckLocalMain:
+    """本物の git（gitx）の口のうち、手元のブランチを進める advance_branch だけが誤りを返す。"""
+
+    def __getattr__(self, name):
+        return getattr(gitx, name)
+
+    def advance_branch(self, *args, **kwargs):
+        raise gitx.GitError("進められない")
+
+
 class TwoPorts(FakePorts):
     """部署 a（feat/a）と部署 b（feat/b）の 2 つを持つ。"""
 
@@ -1441,8 +1497,9 @@ class Queue(LandCase):
         poll.start()
         self.addCleanup(poll.stop)
 
-    def race(self, rules):
-        """部署 a のゲートを止めている間に部署 b の --land を打ち、b がメインブランチを取り直したのが a の push の前か後かを返す。"""
+    def race(self, rules, until):
+        """部署 a のゲートを止めている間に部署 b の --land を打ち、b に until（"wait": 列で待ち始めた・"refresh": メインブランチを取り直した）が
+        起きてから a を放し、b がメインブランチを取り直したのが a の push の前か後かを返す。"""
         w = FakeWorld(self.tmp, {".claude/company.toml": rules})
         w.work()
         second = w.g.add_worktree(os.path.join(self.tmp, "wt", "b"), "feat/b", "origin/main")
@@ -1451,19 +1508,15 @@ class Queue(LandCase):
         repo = Repo("o/r", "", w.source, (), None, None)
         events, lock = [], threading.Lock()
         gate_a = threading.Event()
-        real_refresh, real_advance = land.refresh, land.advance
+        note = recorder(events, lock)
+        watch_git(w.g, note)
+        real_wait = landqueue._wait
 
-        def note(what):
-            with lock:
-                events.append((threading.current_thread().name, what))
-
-        def refresh(source, main, g):
-            note("refresh")
-            return real_refresh(source, main, g)
-
-        def advance(path, main, sha, g):
-            real_advance(path, main, sha, g)
-            note("push")
+        def wait(queue, name, gate, say, sleep):
+            def nap(seconds):
+                note("wait")   # 待つ行を出した後に眠る
+                sleep(seconds)
+            return real_wait(queue, name, gate, say, nap)
 
         def checker(command, cwd, env=None):
             if threading.current_thread().name == "a":
@@ -1476,22 +1529,25 @@ class Queue(LandCase):
             codes[name] = landing.main(None, repo, name, ports, no_rows, {"running": "-", "persistent": "-"}, self.config,
                                        pause=lambda: None, checker=checker)
         out = io.StringIO()
-        with contextlib.redirect_stdout(out), mock.patch.object(land, "refresh", refresh), \
-                mock.patch.object(land, "advance", advance):
+        with contextlib.redirect_stdout(out), mock.patch.object(landqueue, "_wait", wait):
             a = threading.Thread(target=run, args=("a",), name="a")
             a.start()
             while ("a", "gate") not in events:   # a が列の先頭を持ってゲートに入るまで
                 time.sleep(0.01)
             b = threading.Thread(target=run, args=("b",), name="b")
             b.start()
-            time.sleep(0.5)   # b に、列が無ければメインブランチを取り直してしまうだけの間を与える
+            # b に until が起きてから a を放す。時計（0.5 秒）で放すと、遅い runner では b がその間に取り直しにも列の待ちにも届かなかった。
+            # 起きないまま b が終わるか期限が来たら放し、順の照合で赤にする（列が壊れて b が待たない・列が無いのに b が待つ）
+            deadline = time.monotonic() + 30
+            while ("b", until) not in events and b.is_alive() and time.monotonic() < deadline:
+                time.sleep(0.01)
             gate_a.set()
             a.join()
             b.join()
         return codes, events, out.getvalue()
 
     def test_the_later_land_waits_in_the_queue_until_the_earlier_push(self):
-        codes, events, out = self.race(QUEUE_RULES)
+        codes, events, out = self.race(QUEUE_RULES, "wait")
         self.assertEqual(codes, {"a": 0, "b": 0}, out)
         first_b = events.index(("b", "refresh"))
         self.assertLess(events.index(("a", "push")), first_b, f"b が a の push の前にメインブランチを取り直した: {events}")
@@ -1500,7 +1556,7 @@ class Queue(LandCase):
         self.assertEqual(os.listdir(os.path.join(self.tmp, "src", ".git", "land-queue")), ["lock"])   # 札は残らない
 
     def test_without_the_queue_the_later_land_does_not_wait(self):
-        codes, events, out = self.race(CI_RULES.replace('gate = "release/*"', 'gate = "check"\ncheck = "true"'))
+        codes, events, out = self.race(CI_RULES.replace('gate = "release/*"', 'gate = "check"\ncheck = "true"'), "refresh")
         self.assertLess(events.index(("b", "refresh")), events.index(("a", "push")), events)
         self.assertFalse(os.path.exists(os.path.join(self.tmp, "src", ".git", "land-queue")))
 
@@ -1647,19 +1703,9 @@ class QueueRun(LandCase):
     def race(self, first):
         """first（"land" か "queue-run"）を先に申し出させて止めている間に、もう片方を申し出させ、起きた事の並びを返す。"""
         events, lock, hold = [], threading.Lock(), threading.Event()
-        real_refresh, real_advance, real_wait = land.refresh, land.advance, landqueue._wait
-
-        def note(what):
-            with lock:
-                events.append((threading.current_thread().name, what))
-
-        def refresh(source, main, g):
-            note("refresh")
-            return real_refresh(source, main, g)
-
-        def advance(path, main, sha, g):
-            real_advance(path, main, sha, g)
-            note("push")
+        note = recorder(events, lock)
+        watch_git(self.w.g, note)
+        real_wait = landqueue._wait
 
         def checker(command, cwd, env=None):
             note("gate")
@@ -1691,9 +1737,7 @@ class QueueRun(LandCase):
                    "queue-run": threading.Thread(target=run_queue, name="queue-run")}
         second = "queue-run" if first == "land" else "land"
         out, err = io.StringIO(), io.StringIO()
-        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err), \
-                mock.patch.object(land, "refresh", refresh), mock.patch.object(land, "advance", advance), \
-                mock.patch.object(landqueue, "_wait", wait):
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err), mock.patch.object(landqueue, "_wait", wait):
             threads[first].start()
             while (first, "gate" if first == "land" else "start") not in events:   # 先のほうが列の先頭を持つまで
                 time.sleep(0.01)

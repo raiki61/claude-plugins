@@ -14,7 +14,7 @@ import unittest
 
 from . import DISPATCH, schemacheck
 import todo
-from nodes import deliver, ledger
+from nodes import deliver, ledger, wake
 
 A, B, C, D = (f"20261018-0000{n:02d}-{h}" for n, h in ((1, "aaaaaa"), (2, "bbbbbb"), (3, "cccccc"), (4, "dddddd")))
 
@@ -404,10 +404,15 @@ class Todo(unittest.TestCase):
         self.assertIn("木を作る", text)
         self.assertNotRegex(text, r"<script[^>]+src|<link")
 
-    def test_rows_written_by_the_code_fit_the_row_schema(self):
+    def test_the_rows_of_this_setup_and_the_notices_the_code_builds_fit_the_row_schema(self):
+        # setUp の行は試験が組んだ物で、ほかの試験の入力が本物の台帳と同じ形であることを守る。知らせの行（順番待ち・足し・知らせ）は
+        # コードの wake.notice が組み、deliver.log が書いた物を読み戻して照らす（--ask・--deliver が書く行は test_deliver の流れが見る）
+        for kind, text in ((wake.QUEUED, None), (wake.NOTE, "足し"), (wake.SAY, "知らせ")):
+            deliver.log(str(self.theirs), wake.notice("theirs/調べ", C, kind, str(self.queued_c), text, 7))
         for inbox in (self.mine, self.theirs):
             rows = deliver.records(str(inbox))
             self.assertEqual(schemacheck.check({"schema": ledger.SCHEMA, "rows": rows}, schemacheck.schema("ledger")), [])
+        self.assertEqual([r["kind"] for r in deliver.records(str(self.theirs))][-3:], [wake.QUEUED, wake.NOTE, wake.SAY])
 
 
 if __name__ == "__main__":
