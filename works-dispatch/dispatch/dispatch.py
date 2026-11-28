@@ -516,7 +516,7 @@ def main(argv=None, ports=None):
         if a.start is not None and a.due:
             print("止めた: --start と --due は一緒に使えない（--start は 1 つを今、--due は周期の来た物を全部）")
             return 2
-        return starts.start_now(a, ports, os.getcwd(), _task) if a.start is not None else starts.due_all(a, ports, _task)
+        return starts.start_now(a, ports, os.getcwd(), _task) if a.start is not None else starts.due_all(a, ports, _task, fold=lambda root: _fold_company(a, ports, root))
     if a.move is not None:
         return move.move(a, ports, os.getcwd(), _task)
     if (a.account or a.if_limited or a.if_changed) and a.move is None:
@@ -1394,6 +1394,17 @@ def _fold_departments(a, cfg, repo, ports, places, names):
         if line:
             out.append(line)
     return out
+
+
+def _fold_company(a, ports, root):
+    """--due の回の、会社（代表の clone root）の部署の片付け（_fold_departments。一覧の回と同じ決まり）。報告の行。引数なしの dispatch は
+    人が打つときにしか走らないので、終わりの印を打てずに止まった部署（2026-11-28 に my_notes の部署がディスクの満杯で --done に失敗した）を、
+    頼みと納品のたびに裏で走る --due でも拾う。"""
+    cfg = config.load(a.config, os.environ, missing_ok=True)
+    repo = _department_repo(cfg, root, ports, root)
+    found = ports.places(repo)
+    depts = {x["branch"]: name for x, name in _department_worktrees(found, ports, repo.source) if x.get("branch")}
+    return _fold_departments(a, cfg, repo, ports, [p for p in found if p.get("branch") in depts], depts)
 
 
 def _fold_one(a, repo, ports, p, names, listed, dirs):

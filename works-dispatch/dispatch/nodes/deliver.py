@@ -18,7 +18,7 @@
   部署ごとの .git/worktrees/<部署> は git worktree remove で一緒に消える）、勤め先のリポジトリの .gitignore も触らない。
   頼みと納品の本文を 1 件 1 ファイルで置き、log.jsonl に誰が誰に何を頼み何が返ったかを 1 行ずつ足す。
 - Stop フック: 部署（company.role の在る場所）の会話で、受けた頼み（company.ask）の納品（company.delivered）が済んでいなければ、
-  止まる前に納品のコマンドで返すよう差し戻す。同じ会話・同じ頼みで差し戻すのは STOP_LIMIT 回まで（使い切って止まるときは、頼み元へ
+  止まる前に納品のコマンドで返すよう差し戻す（外の状態を待つ部署へは、待つ仕掛けの置き方 OUTSIDE_WAIT も足す）。同じ会話・同じ頼みで差し戻すのは STOP_LIMIT 回まで（使い切って止まるときは、頼み元へ
   stall_line の知らせを 1 度置く。orders.stalled）。裏の処理（裏の Bash・サブエージェント）が
   動いている間と、その終わりの知らせが会話に渡る前は差し戻さない（どう見るかは claudex.resumers。知らせで会話が再開しなければ、待ち受けが少し待って同じ差し戻しを送る。wake_hook.Late）。納品した後の差し戻し（メインブランチに入れていない・終わりの印が無い）は
   orders.stop_after が持つ。
@@ -981,6 +981,21 @@ def exit_talk(pane, h, pause, looks=EXIT_LOOKS):
 
 # ---- Stop フック ----
 
+# 外の状態（PR の検査・マージキュー・ほかの PR のマージ）を待つ部署への、待つ仕掛けの置き方。部署だけが読む文なので英語。
+# 2026-11-28 に guided-resolver の部署が、gates の waitgate に until と sleep の待ちのループを止められて「待つ仕掛けが置けない」と読み、
+# 待ちを頼み元へ渡す納品をして止まった（my_notes の受付 7eb034）。waitgate が止めるのは sleep を回す while・until で、回数の決まった for は通す
+# terms: english-begin
+OUTSIDE_WAIT = (
+    "If you are waiting for an outside state (a PR's checks, the merge queue, another PR's merge), nothing wakes you unless you "
+    "place a waiter before you end the turn: run a command that ends when the state changes with run_in_background, e.g. "
+    "`gh pr checks <N> --watch` for checks, or a bounded loop for a state with no waiting command, e.g. "
+    "`for i in $(seq 1 120); do s=$(gh pr view <N> --json state -q .state); [ \"$s\" != OPEN ] && break; sleep 60; done; echo $s` "
+    "(the waitgate hook blocks while/until loops that sleep, not a for loop with a fixed count; if the loop runs out, check and "
+    "place it again). Do not deliver only to hand the waiting over to the asker."
+)
+# terms: english-end
+
+
 def stop_verdict(payload, attrs, count, run):
     """差し戻すなら、その訳の文。差し戻さないなら None。count はこの会話・この頼みで差し戻した回数。
     部署が --wait で人の答え待ちにした頼み（company.waiting が今の頼み）は促さない（人がその会話に打つと印が外れ、また促す）。"""
@@ -1005,7 +1020,7 @@ def stop_verdict(payload, attrs, count, run):
             "write it as an open question in the summary and deliver anyway "
             f"(this send-back fires up to {STOP_LIMIT} times; this is #{count + 1}). If you are only waiting for background work "
             "(run_in_background Bash or Agent) to finish, you may end the turn (this send-back does not fire while it runs, and its "
-            "completion notification wakes the conversation).")
+            "completion notification wakes the conversation). " + OUTSIDE_WAIT)
     # terms: english-end
 
 

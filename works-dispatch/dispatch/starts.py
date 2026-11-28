@@ -4,6 +4,7 @@
 --start <受け持ち>（start_now）: 受け持ちを今起動する（コマンド）。受け持ちは名前か「会社/名前」。会社を省けば打った場所の会社。
 --due（due_all）: herdr に開いている会社の、周期（every）の来た受け持ちを全部起動する。何度打っても、周期の来た物だけを 1 回起動する。
   見る時の来たリマインダー（--remind）も、担当者に 1 度だけ知らせる（reminds.notify）。
+  納品して main に入ったのに終わりの印（--done）の無い畳む部署も、引数なしの dispatch と同じ決まり（dispatch._fold_departments）で片付ける。
   刻むのは頼みと納品（due_later）: 入口の --ask と --deliver が通るたびに、--due を会話から切り離して裏で打つ（受付の設計の 9 章）。
   頼みも納品も来ない間も刻みたい人は、手元の OS の予定（macOS の launchd・Linux の cron か systemd の timer・Windows のタスク
   スケジューラ）に、例えば 10 分ごとに --due を打たせる。
@@ -187,14 +188,17 @@ def _due_lock(inbox):
         yield got
 
 
-def due_all(a, ports, task):
-    """--due。周期の来た受け持ちを全部起動する。終了の値（0 起動できなかった物が無い・1 1 つでも起動できなかった）。"""
+def due_all(a, ports, task, fold=None):
+    """--due。周期の来た受け持ちを全部起動する。終了の値（0 起動できなかった物が無い・1 1 つでも起動できなかった）。
+    fold（会社の代表の clone を受けて報告の行を返す関数。dispatch._fold_company）が在れば、同じ錠の中で、納品して main に入ったのに
+    終わりの印（--done）の無い畳む部署を、引数なしの dispatch と同じ決まりで片付ける（片付けの行は報告の最後に足すだけで、終了の値を変えない）。"""
     try:
         _, _, _, _, companies, settings, notes = orders.survey(a.config, ports)
     except term.Error as e:
         print(f"止めた: {term.NAME} を読めない（{e}）")
         return 1
     lines, worst, now = list(notes), 0, ports.now()
+    folded = []   # 部署の片付けの行（周期の起動とリマインダーの「無い」の報告には数えない）
     for company in companies:
         common = ports.git.common_dir(company["root"])
         inbox = deliver.inbox_of(common) if common else None
@@ -220,9 +224,16 @@ def due_all(a, ports, task):
                 except (OSError, ValueError) as e:
                     lines.append(f"注記: {company['name']} のリマインダーを知らせられなかった（{e}）")
                     worst = 1
+            if fold:
+                # 終わりの印を打てずに止まった部署を、引数なしの dispatch を待たずに拾う（2026-11-28 に my_notes の部署が、ディスクが満杯の
+                # 間に --done を打てずに 1 時間半残った。my_notes の受付 7eb034 の足し deae42）
+                try:
+                    folded += [f"{company['name']}: {x}" for x in fold(company["root"])]
+                except Exception as e:  # 片付けを読めなくても、周期の起動とリマインダーの報告は止めない
+                    folded.append(f"注記: {company['name']} の、終わりの印の無い部署を片付けるかを読めなかった（{e}）")
     if len(lines) == len(notes):
         lines.append("周期の来た受け持ちも、見る時の来たリマインダーも無い")
-    print("\n".join(lines))
+    print("\n".join(lines + folded))
     return worst
 
 
