@@ -6,6 +6,8 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+## [0.51.7] - 2026-11-28
+
 ### Changed
 
 - 試験だけを直した。字の写し・原文の grep・差し替えた関数の呼ばれた回数で見ていた試験を、出力・終了コード・起動した子の振る舞いで見る形か、1 か所の定義（graph の宣言・argparse の parser・条件の reads・rules の定数）から引く形か、表から起こす形に替えた（シナリオ検査 `tests/simulate.py`・`tests/simulate_review.py` と `tests/py` の 29 行）。同じ形の試験 5 本は、同じ入力を見る表の行に移して消した。シナリオ検査の行がずれたので、旧シナリオ検査と pytest の試験の対応表 `tests/py/MIGRATION.md` の行の列を付け替えた。エンジンとグラフの振る舞いは変わらない。
