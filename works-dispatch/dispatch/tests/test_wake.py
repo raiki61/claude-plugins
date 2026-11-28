@@ -22,6 +22,7 @@ import gitx
 import health
 import herdr as real_herdr
 import orders
+import rentfx
 import role_hook
 import wake_hook
 import windows
@@ -33,6 +34,20 @@ from . import scratch
 def write_line(log, record):
     with open(log, "a", encoding="utf-8") as f:
         f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def dept_line(head_office=False, name="調べ", branch="b", state="done", **extra):
+    """--tree の部署の 1 行（tree.lines）。警告の句は人が読むだけなので、試験は差し込む値（名前・/q・コマンドの旗）と、ほかの形との違いで見る。"""
+    d = {"head_office": head_office, "state": state, "sessions": 1, "name": name, "role": None, "account": None, "boss": None,
+         "panes": [], "branch": branch, **extra}
+    return "\n".join(tree.lines([{"name": "co", "root": "/co", "info_source": None, "description": None, "skills": [],
+                                   "problems": [], "departments": [d]}]))
+
+
+def stuck_of(line):
+    """dept_line の順番待ちの警告のうち、止まった訳の所（「! 」から動かす手の「（--nudge」の前まで）。訳の形ごとに違うかを見るのに使う。"""
+    head = line.index("! ") + 2
+    return line[head:line.index("（--nudge", head)]
 
 
 def dead_pid():
@@ -243,12 +258,14 @@ class Watch(unittest.TestCase):
         self.assertTrue(wake.stalled(self.inbox, self.place, done, now + wake.FRESH + 1, posix=False))
         os.unlink(wake.mark_path(self.inbox, self.place))
         self.assertTrue(wake.stalled(self.inbox, self.place, done, posix=True))
-        line = "\n".join(tree.lines([{"name": "co", "root": "/co", "info_source": None, "description": None, "skills": [],
-                                       "problems": [], "departments": [
-                                           {"head_office": False, "state": "done", "sessions": 1, "name": "調べ", "role": None,
-                                            "account": None, "boss": None, "panes": [], "branch": "b", "queue": 1,
-                                            "queue_dir": "/q", "stalled": True}]}]))
-        self.assertIn("順番待ち 1 件（/q）  ! 渡す待ち受けが居ない（--nudge 調べ で動かす）", line)
+        line = dept_line(queue=1, queue_dir="/q", stalled=True)
+        quiet = dept_line(queue=1, queue_dir="/q", stalled=False)
+        self.assertIn("/q", quiet)
+        self.assertNotIn("!", quiet)   # 止まっていなければ警告も動かす手も出ない
+        self.assertNotIn("--nudge", quiet)
+        self.assertIn("!", line)
+        self.assertIn("--nudge 調べ", line)
+        self.assertNotIn("--dry-run", line)   # 待ち受けが居ないだけなら --nudge でそのまま動かせる
 
     def test_talk_gone_needs_the_accounts_list_and_no_living_entry(self):
         a = {"session": "s1", "account": "p1"}
@@ -260,24 +277,32 @@ class Watch(unittest.TestCase):
         self.assertFalse(tree.talk_gone({"account": "p1"}, {"p1": []}))   # 会話の id が無い
         self.assertFalse(tree.talk_gone(a, None))
         self.assertFalse(tree.talk_gone({**a, wake.RESTARTING: "s1"}, {"p1": []}))   # 待ち受けが起動し直している途中
-        line = "\n".join(tree.lines([{"name": "co", "root": "/co", "info_source": None, "description": None, "skills": [],
-                                       "problems": [], "departments": [
-                                           {"head_office": True, "state": "idle", "sessions": 1, "name": "窓口", "role": None,
-                                            "account": None, "boss": None, "panes": [], "branch": "main", "queue": 1,
-                                            "queue_dir": "/q", "stalled": True, "holder_gone": True}]}]))
-        self.assertIn("! 渡す待ち受けが居ない（受けたままの頼みを持つ会話がもう居ない）（--nudge 窓口 --dry-run で動かし方を見る）", line)
+        desk = {"head_office": True, "name": "窓口", "branch": "main", "state": "idle", "queue": 1, "queue_dir": "/q", "stalled": True}
+        line = dept_line(**desk, holder_gone=True)
+        # 受けたままの頼みを持つ会話が居ない形は --nudge で動かせないことがあるので、先に --dry-run で動かし方を見せる（orders.seat_lost）
+        self.assertIn("--nudge 窓口 --dry-run", line)
+        self.assertNotIn("--dry-run", dept_line(**desk))
+        self.assertNotEqual(stuck_of(line), stuck_of(dept_line(**desk)))   # 訳も、ただの待ち受けの不在と分けて出す
 
     def test_seat_lost_is_only_where_a_line_or_attach_cannot_raise_a_waiter(self):
         attrs = {"session": "s1", "ask": "a1", "boss-inbox": scratch()}
         office = {"head_office": True, "talk_gone": True, "attrs": attrs, "panes": [{"pane_id": "w1:p1", "agent_session": "s2"}]}
         said = orders.seat_lost(office, "w1:p1")
-        self.assertIn("窓 w1:p1 の会話 s2 は窓口の席に付いていない", said)
-        self.assertIn("--desk を打って席に付き、受けたままの頼み a1を済ませて --deliver", said)
-        pathlib.Path(attrs["boss-inbox"], "a1-ask.md").write_text("x", encoding="utf-8")
-        self.assertIn("本文は " + os.path.join(attrs["boss-inbox"], "a1-ask.md"), orders.seat_lost(office, "w1:p1"))
-        self.assertIn("本社で会話を開き", orders.seat_lost(office, None))   # 窓口の会話は attach で戻らない
+        for part in ("w1:p1", "s2", "a1", "--desk", "--deliver"):   # 窓と会話を名指し、席に付いて受けた頼みを納品する手を言う
+            self.assertIn(part, said)
+        self.assertNotIn("--nudge", said)   # 窓口の会話は --nudge では戻らない
+        brief = os.path.join(attrs["boss-inbox"], "a1-ask.md")
+        self.assertNotIn(brief, said)   # 本文のファイルが無ければ指さない
+        pathlib.Path(brief).write_text("x", encoding="utf-8")
+        self.assertIn(brief, orders.seat_lost(office, "w1:p1"))
+        no_window = orders.seat_lost(office, None)   # 窓口の会話は attach で戻らない
+        self.assertIn("--desk", no_window)
+        self.assertNotIn("w1:p1", no_window)
         dept = {**office, "head_office": False}
-        self.assertIn("部署の会話（s1）でない", orders.seat_lost(dept, "w1:p1"))
+        other = orders.seat_lost(dept, "w1:p1")
+        for part in ("w1:p1", "s2", "s1", "--nudge"):   # 部署は窓の会話を確かめてから --nudge で部署の会話（s1）を戻す
+            self.assertIn(part, other)
+        self.assertNotIn("--desk", other)
         self.assertIsNone(orders.seat_lost(dept, None))   # 部署は attach で戻す（revive）
         self.assertIsNone(orders.seat_lost({**office, "panes": [{"pane_id": "w1:p1", "agent_session": "s1"}]}, "w1:p1"))
         self.assertIsNone(orders.seat_lost({**office, "talk_gone": False}, "w1:p1"))
@@ -304,17 +329,15 @@ class Watch(unittest.TestCase):
         write_line(self.log, {"id": "a2", "kind": "held", "place": cwd, "session": "s1", "detail": "x"})
         os.unlink(wake.mark_path(self.inbox, self.place))
         self.assertIsNone(wake.held(self.inbox, cwd, self.place))   # 待ち受けが居ないのは stalled の方
-        line = "\n".join(tree.lines([{"name": "co", "root": "/co", "info_source": None, "description": None, "skills": [],
-                                       "problems": [], "departments": [
-                                           {"head_office": False, "state": "done", "sessions": 1, "name": "調べ", "role": None,
-                                            "account": None, "boss": None, "panes": [], "branch": "b", "queue": 1,
-                                            "queue_dir": "/q", "stalled": False, "held": "x"}]}]))
-        self.assertIn("順番待ち 1 件（/q）  ! 渡さずに待っている（x）（--nudge 調べ で動かす）", line)
-        line = "\n".join(tree.lines([{"name": "co", "root": "/co", "info_source": None, "description": None, "skills": [],
-                                       "problems": [], "departments": [
-                                           {"head_office": False, "state": "done", "sessions": 1, "name": "調べ", "role": None,
-                                            "account": None, "boss": None, "panes": [], "branch": "b", "no_talk_id": True}]}]))
-        self.assertIn("! 会話の id（company.session）が無い（窓の会話が落ちたとき", line)
+        line = dept_line(queue=1, queue_dir="/q", stalled=False, held="窓を確かめられない")
+        self.assertIn("窓を確かめられない", stuck_of(line))   # 台帳の held の訳を出す
+        self.assertIn("--nudge 調べ", line)
+        self.assertNotIn("--dry-run", line)
+        self.assertNotEqual(stuck_of(line), stuck_of(dept_line(queue=1, queue_dir="/q", stalled=True)))
+        line = dept_line(no_talk_id=True)
+        self.assertIn("!", line)
+        self.assertIn("company.session", line)   # 無い属性の鍵を名指す
+        self.assertNotIn("!", dept_line())
 
     def test_only_notice_kinds_with_a_text_address_wake_the_talk(self):
         # 記録の行に字の to を書いても、空の知らせで会話を再開させない（c52730 の 3）
@@ -341,6 +364,14 @@ class Watch(unittest.TestCase):
 
 
 ME = 4242   # 試験の中の、この会話の処理（Claude Code）の番号
+
+
+def busy_reason(cwd):
+    """会話がまだ動いている窓を空にしない訳（wake_hook.clear_now が出し、待ち受けが台帳の held の detail に書く字）。試験に字を写さず、
+    出す側から引く（--nudge は orders.PASSING の字でこの訳を読み分けるので、出す側と読む側がずれたら赤にする）。"""
+    why = []
+    wake_hook.clear_now({"cwd": cwd, "session": "s"}, {}, {}, Window(cwd, status="working"), me=lambda: ME, why=why)
+    return why[0]
 
 
 class Window:
@@ -397,6 +428,11 @@ class Keepalive(unittest.TestCase):
 
     def skipped(self):
         return [r["detail"] for r in deliver.records(self.inbox) if r.get("status") == "skipped"]
+
+    def why(self, attrs):
+        """送らない訳（台帳の skipped の行の detail）。訳の文は人が読むだけなので、1 か所の定義（wake_hook.work_unwanted）から引き、
+        試験は、どの属性でどの訳の行を残したか・訳どうしが分かれているかで見る。"""
+        return wake_hook.work_unwanted(self.got, attrs)
 
     def add(self, row, end="\n"):
         with open(self.log, "a", encoding="utf-8") as f:
@@ -486,8 +522,9 @@ class Keepalive(unittest.TestCase):
         no_log = {k: v for k, v in self.payload.items() if k != "transcript_path"}
         self.assertIsNone(wake_hook.warm_for(self.got, no_log, conf_of=conf, attrs_of=lambda cwd: self.attrs))
         # 送らなかった訳を台帳に残す（ターンの終わりでない SessionStart は残さない）
-        self.assertEqual(self.skipped(), ["rent-or-buy を切っている（役か受け持ちの rent_or_buy = false）か、会社の形か寿命の値が読めない",
-                                          "会話の記録の場所が分からず、会話が動いたかを見られない"])
+        off, no_log_why = self.skipped()
+        self.assertIn("rent_or_buy", off)   # 切る設定の鍵を名指す
+        self.assertNotEqual(off, no_log_why)
         # rent-or-buy を切った部署の、裏の処理の無いターンの終わりと、頼みの無い部署の裏の処理は台帳に書かない
         wake_hook.warm_for(self.got, idle, conf_of=lambda cwd, attrs, read: None, attrs_of=lambda cwd: self.attrs)
         wake_hook.warm_for(self.got, self.payload, conf_of=lambda cwd, attrs, read: None, attrs_of=lambda cwd: {})
@@ -495,13 +532,15 @@ class Keepalive(unittest.TestCase):
 
     def test_a_department_done_with_its_ask_or_marked_to_rest_says_nothing(self):
         conf = lambda cwd, attrs, read: self.conf
-        for attrs in ({}, {"ask": "a1", "delivered": "a1"}, {"ask": "a1", "rest": "s1"}, {"ask": "a1", "compact": "s1"},
-                      {"ask": "a1", "finished": "s1"}, {"ask": "a1", "restarting": "s1"}):
+        every = ({}, {"ask": "a1", "delivered": "a1"}, {"ask": "a1", "rest": "s1"}, {"ask": "a1", "compact": "s1"},
+                 {"ask": "a1", "finished": "s1"}, {"ask": "a1", "restarting": "s1"})
+        for attrs in every:
             self.assertIsNone(wake_hook.warm_for(self.got, self.payload, conf_of=conf, attrs_of=lambda cwd: attrs), attrs)
-        self.assertEqual(self.skipped(), ["頼みを受けておらず、閉じていない出した頼みも保留の頼みも無い",
-                                          "今の頼みを納品し、閉じていない出した頼みも保留の頼みも無い", "区切りの印（--rest）が在る",
-                                          "区切りの印（--compact）が在る", "終わりの印（--done）が在る",
-                                          "起動し直しの印（--move --if-changed）が在る"])
+        expected = [self.why(a) for a in every]
+        self.assertEqual(self.skipped(), expected)
+        self.assertEqual(len(set(expected)), len(every))   # 訳は属性ごとに分かれる
+        for flag, why in zip(("--rest", "--compact", "--done", "--move --if-changed"), expected[2:]):
+            self.assertIn(flag, why)   # 印の訳は、印を付けたコマンドを名指す
         # 待つ間に納品した・区切りを打ったなら、時計が鳴っても送らない（送る前に属性を読み直す）。この待ちでは、もう送らない
         warm = self.warm()
         self.attrs = {"ask": "a1", "delivered": "a1"}
@@ -509,7 +548,7 @@ class Keepalive(unittest.TestCase):
         self.assertIsNone(warm())
         self.attrs = {"ask": "a2"}
         self.assertIsNone(warm())
-        self.assertEqual(self.skipped()[-1:], ["今の頼みを納品し、閉じていない出した頼みも保留の頼みも無い"])
+        self.assertEqual(self.skipped()[-1:], [self.why({"ask": "a1", "delivered": "a1"})])
         self.assertEqual(len(self.skipped()), 7)
 
     def asked(self, child, at=1000.0, session="s1"):
@@ -542,7 +581,8 @@ class Keepalive(unittest.TestCase):
         deliver.log(self.inbox, {"kind": "deliver", "ask": "c1", "at": 1100.0})
         self.clock[0] += 210
         self.assertIsNone(warm())
-        self.assertEqual(self.skipped(), ["頼みを受けておらず、閉じていない出した頼みも保留の頼みも無い"])
+        self.assertIsNotNone(self.why(self.attrs))
+        self.assertEqual(self.skipped(), [self.why(self.attrs)])
 
     def test_marks_still_stop_it_and_background_work_and_asks_all_go_into_what_it_waits_for(self):
         conf = lambda cwd, attrs, read: self.conf
@@ -551,7 +591,8 @@ class Keepalive(unittest.TestCase):
         # 区切り・終わりの印が在れば送らず、訳を残す
         attrs = {"name": "調べ", "ask": "a1", "delivered": "a1", "rest": "s1"}
         self.assertIsNone(wake_hook.warm_for(self.got, idle, conf_of=conf, attrs_of=lambda cwd: attrs))
-        self.assertEqual(self.skipped(), ["区切りの印（--rest）が在る"])
+        self.assertEqual(self.skipped(), [wake_hook.warm_marked(attrs)])
+        self.assertIn("--rest", self.skipped()[0])
         # 待つ物は、裏の処理・受けた頼み・出した頼みを並べる（どれかが替われば数え直す）
         attrs = {"name": "調べ", "ask": "a1"}
         self.assertEqual(wake_hook.warm_for(self.got, self.payload, conf_of=conf, attrs_of=lambda cwd: attrs).tasks,
@@ -581,20 +622,27 @@ class Keepalive(unittest.TestCase):
         self.assertEqual(self.skipped(), [])
         # 裏の処理を残したなら、送らなかった訳を残す
         self.assertIsNone(wake_hook.warm_for(self.got, self.payload, conf_of=conf, attrs_of=lambda cwd: {"ask": "a1", "delivered": "a1"}))
-        self.assertEqual(self.skipped(), ["今の頼みを納品し、閉じていない出した頼みも保留の頼みも無い"])
+        self.assertEqual(self.skipped(), [self.why({"ask": "a1", "delivered": "a1"})])
+        self.assertIsNotNone(self.skipped()[0])
 
     def test_the_model_that_answered_last_sets_the_price_of_a_read(self):
         with open(self.log, "a", encoding="utf-8") as f:
             f.write(json.dumps({"type": "assistant", "message": {"model": "claude-opus-5-5", "usage": {}}}) + "\n")
             f.write(json.dumps({"type": "user", "message": {"content": "x"}}) + "\n")
         self.assertEqual(chat.last_model(self.payload), "claude-opus-5-5")
-        self.assertEqual(chat.read_rate(chat.last_model(self.payload)), 0.05)
-        self.assertEqual(chat.read_rate("claude-fable-5-1[1m]"), 0.025)
+        # 値段は表（claudex.CACHE_READ_RATES）から引く。試験が守るのは、名前の頭で表を引くこと（[1m] や日付の付いた名前も）と、
+        # 表に無い・分からない名前は既定の倍率に倒れること
+        opus = chat.CACHE_READ_RATES["claude-opus-5-5"]
+        self.assertEqual(chat.read_rate(chat.last_model(self.payload)), opus)
+        for name, rate in chat.CACHE_READ_RATES.items():
+            for told in (name, name + "[1m]", name + "-20261001"):
+                self.assertEqual(chat.read_rate(told), rate, told)
         self.assertEqual(chat.read_rate(None), chat.CACHE_READ_RATE)
+        self.assertEqual(chat.read_rate("gpt-5"), chat.CACHE_READ_RATE)
         self.assertIsNone(chat.last_model({"transcript_path": os.path.join(self.cwd, "none.jsonl")}))
         seen = []
         wake_hook.warm_for(self.got, self.payload, conf_of=lambda cwd, attrs, read: seen.append(read), attrs_of=lambda cwd: self.attrs)
-        self.assertEqual(seen, [0.05])
+        self.assertEqual(seen, [opus])
 
     def test_an_error_in_the_clock_stops_only_the_keepalive(self):
         warm = self.warm()
@@ -602,8 +650,9 @@ class Keepalive(unittest.TestCase):
         err = io.StringIO()
         with mock.patch.object(wake, "warm_note", side_effect=OSError("書けない")), mock.patch.object(sys, "stderr", err):
             self.assertIsNone(warm())
-        self.assertIn("keepalive の時計が誤りで止まった", err.getvalue())
-        self.assertEqual(self.skipped(), ["時計が誤りで止まった（OSError）"])
+        self.assertIn("書けない", err.getvalue())   # 誤りの中身を注記に出す
+        [why] = self.skipped()
+        self.assertIn("OSError", why)   # 誤りの種類を台帳に残す
         self.assertIsNone(warm())   # この待ちではもう送らない
 
     def test_a_department_left_waiting_on_its_background_work_long_shows_on_the_tree(self):
@@ -631,13 +680,13 @@ class Keepalive(unittest.TestCase):
         # 数だけ分かる裏の処理（count:N）は数を出す
         wake.waiting_note(self.inbox, self.place, "s1", "a1", ["count:2"], 0.0, self.log)
         self.assertEqual(wake.long_wait(self.inbox, self.place, attrs, now=long)["tasks"], 2)
-        line = "\n".join(tree.lines([{"name": "co", "root": "/co", "info_source": None, "description": None, "skills": [],
-                                       "problems": [], "departments": [
-                                           {"head_office": False, "state": "done", "sessions": 1, "name": "調べ", "role": None,
-                                            "account": None, "boss": None, "panes": [], "branch": "b",
-                                            "long_wait": {"since": 1792760000.0, "tasks": 2}}]}]))
-        stamp = time.strftime("%m-%d %H:%M", time.localtime(1792760000.0))
-        self.assertIn(f"! 裏の処理（2 本）を待ってターンを終えたまま、{stamp} から同じ頼みで会話が動いていない", line)
+        # 時刻は手元の時刻で 11-03 09:05 になる時点を置き、書式は試験の側の字で見る（対象と同じ strftime で期待値を作らない）
+        since = time.mktime((2026, 11, 3, 9, 5, 0, 0, 0, -1))
+        line = dept_line(long_wait={"since": since, "tasks": 2})
+        self.assertNotIn("!", dept_line())
+        for part in ("!", "（2 本）", "11-03 09:05"):   # 警告と、裏の処理の数と、待ち始めた時刻
+            self.assertIn(part, line)
+        self.assertNotIn("本）", dept_line(long_wait={"since": since}))   # 数の分からない裏の処理は数を出さない
 
     def test_a_finished_department_left_unretired_behind_background_work_shows_on_the_tree(self):
         # 終わりの印（--done）の部署が裏の処理を残してターンを終え、猶予の倍を過ぎても畳まれていなければ出す（受付 471732。
@@ -658,14 +707,12 @@ class Keepalive(unittest.TestCase):
         # 裏の処理を残さずに終えたターン（その場で畳む）は控えが消えて出さない
         wake_hook.warm_for(self.got, {**self.payload, "background_tasks": []}, conf_of=conf, attrs_of=lambda cwd: attrs, now=lambda: 2000.0)
         self.assertIsNone(wake.finish_stuck(self.inbox, self.place, attrs, now=late + 2000))
-        line = "\n".join(tree.lines([{"name": "co", "root": "/co", "info_source": None, "description": None, "skills": [],
-                                       "problems": [], "departments": [
-                                           {"head_office": False, "state": "working", "sessions": 1, "name": "調べ", "role": None,
-                                            "account": None, "boss": None, "panes": [], "branch": "b",
-                                            "finish_stuck": {"since": 1792760000.0, "tasks": 1}}]}]))
-        stamp = time.strftime("%m-%d %H:%M", time.localtime(1792760000.0))
-        self.assertIn(f"! 終わりの印（--done）が有るのに、裏の処理（1 本）を残した{stamp} のターンの終わりから畳まれていない", line)
-        self.assertIn("--retire 調べ で畳む", line)
+        since = time.mktime((2026, 11, 3, 9, 5, 0, 0, 0, -1))   # 手元の時刻で 11-03 09:05
+        line = dept_line(state="working", finish_stuck={"since": since, "tasks": 1})
+        self.assertNotIn("!", dept_line(state="working"))
+        for part in ("!", "--done", "（1 本）", "11-03 09:05", "--retire 調べ"):   # 警告・印・裏の処理の数・時刻・畳む手
+            self.assertIn(part, line)
+        self.assertNotIn("--retire", dept_line(long_wait={"since": since, "tasks": 1}))   # 長く待つだけの部署には畳む手を出さない
 
     def test_a_keepalive_turn_does_not_set_the_long_wait_back(self):
         attrs = {"ask": "a1", "session": "s1"}
@@ -1035,11 +1082,13 @@ class Hook(unittest.TestCase):
                                        restart=lambda got_, key: tried.append(key) or True, key_of=lambda cwd, a: "other")()
         self.assertEqual(tried, [], "起動し直すと、子の返事を受ける会話が居なくなる")
         self.assertEqual(kind, "wake")
-        self.assertTrue(text.startswith("（前の頼みを納品した会話を空にしないまま渡す: この会話が出した子の頼み（受付 c1）"), text)
         self.assertTrue(text.endswith("頼みです（受付 a1）"))
         self.assertEqual(w.writes, [], "子の返事を受ける会話を空にしない")
         handed = [r for r in deliver.records(self.inbox) if r.get("kind") == "handed"]
         self.assertIn("受付 c1", handed[-1]["kept"])
+        # 空にしない訳（台帳の kept と同じ物）を、頼みの文より前の行で会話に添える
+        self.assertIn(handed[-1]["kept"], text.splitlines()[0])
+        self.assertNotIn("a1", text.splitlines()[0])
         self.assertEqual([r for r in deliver.records(self.inbox) if r.get("kind") == "held"], [])
         # 次の頼みを受けた後も、同じ会話が前の頼みで出した子は数える
         self.assertEqual(wake_hook.open_children(self.plan(), self.g.worktree_attrs(self.place)), ["c1"])
@@ -1900,7 +1949,9 @@ class Hook(unittest.TestCase):
             self.assertEqual(self.g.worktree_attrs(self.place)["ask"], "a0")
         held = [r for r in deliver.records(self.inbox) if r["kind"] == "held"]
         self.assertEqual(len(held), 3)   # 訳ごとに 1 度
-        self.assertIn("会話がまだ動いている", held[0]["detail"])
+        self.assertIn(busy_reason(self.place), held[0]["detail"])
+        # 会話が動いている・打ちかけの字の訳は、--nudge がすぐ替わる訳（orders.PASSING）と読んで起動し直さない。窓を確かめられない訳は読まない
+        self.assertEqual([any(p in r["detail"] for p in orders.PASSING) for r in held], [True, True, False])
         # 裏の処理が残るだけなら止めない（知らせをこの会話で受ける）。前の会話のまま、訳を頭に付けて渡し、起動し直さない
         tried = []
         kind, text = wake_hook.checker(self.plan(), {"hook_event_name": "Stop", "background_tasks": [{"id": "b"}]}, h=Window(self.place),
@@ -1990,10 +2041,13 @@ class Hook(unittest.TestCase):
         w = Window(self.place, box="打ちかけ")
         kind, text = self.checker(stop, w)()
         self.assertEqual((kind, w.writes), ("wake", []))
-        self.assertTrue(text.startswith("（区切り〔--rest〕で会話を空にできなかったので、前の会話のまま渡す: 窓の入力フィールドに打ちかけの字が在る（「打ちかけ」"), text)
         self.assertTrue(text.endswith("頼みです（受付 a1）"), text)
         handed = [r for r in deliver.records(self.inbox) if r["kind"] == "handed"]
         self.assertIn("打ちかけ", handed[-1]["unrested"])
+        # 空にできなかった訳（台帳の unrested と同じ物）を、どの区切り〔--rest〕かと一緒に、頼みの文より前の行で会話に添える
+        head = text.splitlines()[0]
+        self.assertIn(handed[-1]["unrested"], head)
+        self.assertIn("--rest", head)
         self.assertEqual(self.g.worktree_attrs(self.place)[wake.REST], "s1")   # 印は残る（次のターンの終わりにまた試す）
 
     def test_a_break_is_not_cleared_with_an_open_ask_typed_text_or_outside_stop(self):
@@ -2058,7 +2112,10 @@ class Hook(unittest.TestCase):
             self.assertEqual(w.writes, ["/compact 次は直しを書く"])
             kind, text = wake_hook.checker(self.plan(), start, h=w, now=lambda: 5, me=lambda: ME)()
             self.assertEqual(kind, "wake")
-            self.assertIn("compact した。焦点: 次は直しを書く", text)
+            # 区切りで打った compact と、費用の読み（rentfx）が記録から見分ける印（rentfx.CUT_MARK）と、焦点を添える
+            self.assertIn(rentfx.CUT_MARK, text)
+            self.assertNotIn(rentfx.JUDGED_MARK, text)
+            self.assertIn("次は直しを書く", text)
         self.assertEqual(wake_hook.compact_turn(self.plan(), stop, self.g.worktree_attrs(self.place), w, me=lambda: ME,
                                                 pause=compacted, looks=1), ("end", None))
         self.assertNotIn(wake.COMPACT, self.g.worktree_attrs(self.place))
@@ -2068,73 +2125,82 @@ class Hook(unittest.TestCase):
 
     def test_a_compact_break_types_whatever_the_size_and_wakes_the_talk_when_it_cannot_type(self):
         # 費用の判断は印のコマンドが印を付ける前に済ませた（mark_judge）。ターンの終わりは部品に聞き直さず、小さくても打つ
-        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1", "ask": "a0", wake.COMPACT: "s1"}, self.g)
-        small = {"hook_event_name": "Stop", "session_id": "s1", "transcript_path": self.transcript(wake.COMPACT_FLOOR - 1)}
-        w = Window(self.place)
-        with mock.patch.object(wake_hook, "RENT", lambda *a, **k: self.fail("部品に聞き直した")):
-            wake_hook.compact_turn(self.plan(), small, self.g.worktree_attrs(self.place), w, me=lambda: ME, pause=lambda: None,
-                                   looks=1)
-        self.assertEqual(w.writes, ["/compact"])
-        self.assertNotIn(wake.COMPACT, self.g.worktree_attrs(self.place))
+        with self.subTest('印が在れば部品に聞き直さず、小さくても打つ'):
+            provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1", "ask": "a0", wake.COMPACT: "s1"}, self.g)
+            small = {"hook_event_name": "Stop", "session_id": "s1", "transcript_path": self.transcript(wake.COMPACT_FLOOR - 1)}
+            w = Window(self.place)
+            with mock.patch.object(wake_hook, "RENT", lambda *a, **k: self.fail("部品に聞き直した")):
+                wake_hook.compact_turn(self.plan(), small, self.g.worktree_attrs(self.place), w, me=lambda: ME, pause=lambda: None,
+                                       looks=1)
+            self.assertEqual(w.writes, ["/compact"])
+            self.assertNotIn(wake.COMPACT, self.g.worktree_attrs(self.place))
         # 人の打ちかけの字は消さない。打てなければ訳を添えて、この会話のまま続けさせる
-        provision.mark(self.place, self.src, {wake.COMPACT: "s1"}, self.g)
-        big = {**small, "transcript_path": self.transcript(wake.COMPACT_FLOOR)}
-        w = Window(self.place, box="打ちかけ")
-        kind, text = self.checker(big, w)()
-        self.assertEqual((kind, w.writes), ("wake", []))
-        self.assertIn("compact できなかった: 窓の入力フィールドに打ちかけの字が在る", text)
-        self.assertNotIn(wake.COMPACT, self.g.worktree_attrs(self.place))
+        with self.subTest('人の打ちかけの字は消さない'):
+            provision.mark(self.place, self.src, {wake.COMPACT: "s1"}, self.g)
+            big = {**small, "transcript_path": self.transcript(wake.COMPACT_FLOOR)}
+            w = Window(self.place, box="打ちかけ")
+            kind, text = self.checker(big, w)()
+            self.assertEqual((kind, w.writes), ("wake", []))
+            self.assertIn("compact できなかった: 窓の入力フィールドに打ちかけの字が在る", text)
+            self.assertNotIn(wake.COMPACT, self.g.worktree_attrs(self.place))
         # 打ったが済んだのを見られなければ、印を外して続けさせる（止まったままにしない）
-        provision.mark(self.place, self.src, {wake.COMPACT: "s1"}, self.g)
-        w = Window(self.place)
-        kind, text = wake_hook.compact_turn(self.plan(), big, self.g.worktree_attrs(self.place), w, me=lambda: ME,
-                                            pause=lambda: None, looks=2)
-        self.assertEqual((kind, w.writes), ("wake", ["/compact"]))
-        self.assertIn("済んだのを見られない", text)
+        with self.subTest('打ったが済んだのを見られなければ、印を外して続けさせる'):
+            provision.mark(self.place, self.src, {wake.COMPACT: "s1"}, self.g)
+            w = Window(self.place)
+            kind, text = wake_hook.compact_turn(self.plan(), big, self.g.worktree_attrs(self.place), w, me=lambda: ME,
+                                                pause=lambda: None, looks=2)
+            self.assertEqual((kind, w.writes), ("wake", ["/compact"]))
+            self.assertIn("済んだのを見られない", text)
         # 打った /compact が入力フィールドに残れば Enter を 1 回だけ足す（残ったまま次の字に連なって届かない）
-        provision.mark(self.place, self.src, {wake.COMPACT: "s1"}, self.g)
-        w = Window(self.place)
-        w.prompt = lambda pane, text, wait: (w.writes.append(text), setattr(w, "box", text))
-        wake_hook.compact_turn(self.plan(), big, self.g.worktree_attrs(self.place), w, me=lambda: ME, pause=lambda: None, looks=3)
-        self.assertEqual(w.writes, ["/compact", ("enter",)])
+        with self.subTest('打った /compact が入力フィールドに残れば Enter を 1 回だけ足'):
+            provision.mark(self.place, self.src, {wake.COMPACT: "s1"}, self.g)
+            w = Window(self.place)
+            w.prompt = lambda pane, text, wait: (w.writes.append(text), setattr(w, "box", text))
+            wake_hook.compact_turn(self.plan(), big, self.g.worktree_attrs(self.place), w, me=lambda: ME, pause=lambda: None, looks=3)
+            self.assertEqual(w.writes, ["/compact", ("enter",)])
         # ターンの終わりの直後にまだ動いていると見えても、手が空くのを見直してから打つ
-        provision.mark(self.place, self.src, {wake.COMPACT: "s1"}, self.g)
-        w = Window(self.place, status="working")
-        w.pause = lambda: setattr(w, "status", "done")
-        kind, _ = wake_hook.compact_turn(self.plan(), big, self.g.worktree_attrs(self.place), w, me=lambda: ME, pause=w.pause, looks=1)
-        self.assertEqual((kind, w.writes), ("wake", ["/compact"]))
+        with self.subTest('ターンの終わりの直後にまだ動いていると見えても、手が空くのを見直してから打つ'):
+            provision.mark(self.place, self.src, {wake.COMPACT: "s1"}, self.g)
+            w = Window(self.place, status="working")
+            w.pause = lambda: setattr(w, "status", "done")
+            kind, _ = wake_hook.compact_turn(self.plan(), big, self.g.worktree_attrs(self.place), w, me=lambda: ME, pause=w.pause, looks=1)
+            self.assertEqual((kind, w.writes), ("wake", ["/compact"]))
         # 区切り（--rest）や終わり（--done）の印が在る・ほかの会話の印のときは、compact しない
-        for marks, payload in (({wake.REST: "s1"}, big), ({wake.COMPACT: "s0"}, big)):
-            provision.mark(self.place, self.src, {wake.COMPACT: "s1", wake.REST: None, **marks}, self.g)
-            self.assertIsNone(wake_hook.compact_turn(self.plan(), payload, self.g.worktree_attrs(self.place), Window(self.place),
-                                                     me=lambda: ME))
+        with self.subTest('区切り・終わりの印か、ほかの会話の印なら compact しない'):
+            for marks, payload in (({wake.REST: "s1"}, big), ({wake.COMPACT: "s0"}, big)):
+                provision.mark(self.place, self.src, {wake.COMPACT: "s1", wake.REST: None, **marks}, self.g)
+                self.assertIsNone(wake_hook.compact_turn(self.plan(), payload, self.g.worktree_attrs(self.place), Window(self.place),
+                                                         me=lambda: ME))
 
     def test_a_compact_break_with_background_work_looks_at_the_transcript_instead_of_the_window(self):
         # 裏の処理が残る会話は、herdr がターンを終えていても working と出す。窓の状態の代わりに、会話の記録にターンの行が
         # 足されていないかで手が空いたと見て打つ（知らせは compact の後の会話に届く。my_notes の受付 807aee）
-        provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1", "ask": "a0", wake.COMPACT: "s1"}, self.g)
-        busy = {"hook_event_name": "Stop", "session_id": "s1", "transcript_path": self.transcript(wake.COMPACT_FLOOR),
-                "background_tasks": [{"id": "b", "status": "running"}]}
-        w = Window(self.place, status="working")
-        kind, text = wake_hook.compact_turn(self.plan(), busy, self.g.worktree_attrs(self.place), w, me=lambda: ME,
-                                            pause=lambda: None, looks=1)
-        self.assertEqual((kind, w.writes), ("wake", ["/compact"]))
-        self.assertIn("済んだのを見られない", text)   # 偽物の窓では compact の後の会話の始まりが来ない
+        with self.subTest('裏の処理が残る会話は、窓が working でも会話の記録で見て打つ'):
+            provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1", "ask": "a0", wake.COMPACT: "s1"}, self.g)
+            busy = {"hook_event_name": "Stop", "session_id": "s1", "transcript_path": self.transcript(wake.COMPACT_FLOOR),
+                    "background_tasks": [{"id": "b", "status": "running"}]}
+            w = Window(self.place, status="working")
+            kind, text = wake_hook.compact_turn(self.plan(), busy, self.g.worktree_attrs(self.place), w, me=lambda: ME,
+                                                pause=lambda: None, looks=1)
+            self.assertEqual((kind, w.writes), ("wake", ["/compact"]))
+            self.assertIn("済んだのを見られない", text)   # 偽物の窓では compact の後の会話の始まりが来ない
         # 打つ前に会話が動いた（裏の処理の知らせでターンが始まった）なら打たない。動いている会話を起動せず、印を残して
         # そのターンの終わりにまた試す
-        provision.mark(self.place, self.src, {wake.COMPACT: "s1"}, self.g)
-        w = Window(self.place, status="working")
+        with self.subTest('打つ前に会話が動いた'):
+            provision.mark(self.place, self.src, {wake.COMPACT: "s1"}, self.g)
+            w = Window(self.place, status="working")
 
-        def notified():
-            with open(busy["transcript_path"], "a", encoding="utf-8") as f:
-                f.write(json.dumps({"type": "user", "message": {"content": "<task-notification>"}}) + "\n")
-        self.assertIsNone(wake_hook.compact_turn(self.plan(), busy, self.g.worktree_attrs(self.place), w, me=lambda: ME,
-                                                 pause=notified, looks=1))
-        self.assertEqual(w.writes, [])
-        self.assertEqual(self.g.worktree_attrs(self.place)[wake.COMPACT], "s1")
+            def notified():
+                with open(busy["transcript_path"], "a", encoding="utf-8") as f:
+                    f.write(json.dumps({"type": "user", "message": {"content": "<task-notification>"}}) + "\n")
+            self.assertIsNone(wake_hook.compact_turn(self.plan(), busy, self.g.worktree_attrs(self.place), w, me=lambda: ME,
+                                                     pause=notified, looks=1))
+            self.assertEqual(w.writes, [])
+            self.assertEqual(self.g.worktree_attrs(self.place)[wake.COMPACT], "s1")
         # 会話が動いたかを見られない（会話の記録の場所が無い）なら、今までどおり打たない
-        self.assertEqual(wake_hook.compact_now(self.plan(), {**busy, "transcript_path": None}, {}, Window(self.place)),
-                         wake_hook.NOT_CLEARED_BACKGROUND)
+        with self.subTest('会話が動いたかを見られない'):
+            self.assertEqual(wake_hook.compact_now(self.plan(), {**busy, "transcript_path": None}, {}, Window(self.place)),
+                             wake_hook.NOT_CLEARED_BACKGROUND)
 
     def rent_or_buy(self, *answers):
         """部品の偽物: 呼ばれるたびに answers を順に返し、呼ばれた (場面, facts) を self.asked_part に残す。"""
@@ -2168,7 +2234,8 @@ class Hook(unittest.TestCase):
         # 問う前の判断には問いの費用（出力のトークンと、焦点が返らない割合）を足す（計画の 6 の足す 4。額にするのは部品）
         self.assertEqual(self.asked_part, [("compact", {"lifetime": 300, "ask": True, "deferred": 0,
                                                         "defer_limit": wake_hook.DEFER_LIMIT, "forced": False,
-                                                        "consult_output_tokens": 300 - 5, "consult_miss": 0})])
+                                                        "consult_output_tokens": wake_hook.CONSULT_OUTPUT_TOKENS,
+                                                        "consult_miss": wake_hook.CONSULT_MISS})])
         self.assertTrue(wake.compact_state(self.inbox, place, "s1")["asked"])
         self.assertEqual(deliver.records(self.inbox)[-1]["status"], "asked")
         # 問いで始まったターンの最後の答えを読み、2 回目の判断に渡す。打つなら焦点付きで打ち、compact の後の会話に待ちを続けさせる
@@ -2181,7 +2248,9 @@ class Hook(unittest.TestCase):
         def compacted():
             self.assertEqual(w.writes, ["/compact 直しの残りと試験の結果"])
             kind, text = wake_hook.checker(self.plan(), start, h=w, now=lambda: 5, me=lambda: ME)()
-            self.assertIn("費用の判断で会話を compact した。焦点: 直しの残りと試験の結果", text)
+            # 費用の判断で打った compact の印（rentfx.JUDGED_MARK。費用の読みが記録から見分ける）と、会話が答えた焦点を添える
+            self.assertIn(rentfx.JUDGED_MARK, text)
+            self.assertIn("直しの残りと試験の結果", text)
         with self.rent_or_buy((go, None)):
             self.assertEqual(wake_hook.compact_turn(self.plan(), payload, self.g.worktree_attrs(self.place), w, me=lambda: ME,
                                                     pause=compacted, looks=1), ("end", None))
@@ -2215,107 +2284,114 @@ class Hook(unittest.TestCase):
 
     def test_past_the_defer_limit_it_compacts_without_asking_and_sends_the_keepalive_if_it_cannot(self):
         # 延ばした回数が上限に着くと部品は聞かずに buy を返す。焦点なしで打つ。打てなければ印を外し、keepalive の文を送る
-        log, clock = self.transcript(150000), [1240.0]
-        payload, warm = self.judged_warm(log, clock)
-        place = self.g.git_dir(self.place)
-        wake.compact_note(self.inbox, place, "s1", deferred=wake_hook.DEFER_LIMIT)
-        with self.rent_or_buy(({"action": "buy", "consult": False, "reason": "defer_limit_reached", "why": "w"}, None)):
-            self.assertEqual(warm(), "（keepalive）")
-        self.assertEqual(self.asked_part[0][1]["deferred"], wake_hook.DEFER_LIMIT)
-        self.assertNotIn(wake.COMPACT, self.g.worktree_attrs(self.place))
-        self.assertFalse(wake.compact_state(self.inbox, place, "s1")["judged"])
-        row = deliver.records(self.inbox)[-1]
-        self.assertEqual((row["sent"], row["compact"]), (1, "compact を打てなかった（窓の入力フィールドに打ちかけの字が在る）"))
+        with self.subTest('延ばした回数が上限に着くと部品は聞かずに buy を返す'):
+            log, clock = self.transcript(150000), [1240.0]
+            payload, warm = self.judged_warm(log, clock)
+            place = self.g.git_dir(self.place)
+            wake.compact_note(self.inbox, place, "s1", deferred=wake_hook.DEFER_LIMIT)
+            with self.rent_or_buy(({"action": "buy", "consult": False, "reason": "defer_limit_reached", "why": "w"}, None)):
+                self.assertEqual(warm(), "（keepalive）")
+            self.assertEqual(self.asked_part[0][1]["deferred"], wake_hook.DEFER_LIMIT)
+            self.assertNotIn(wake.COMPACT, self.g.worktree_attrs(self.place))
+            self.assertFalse(wake.compact_state(self.inbox, place, "s1")["judged"])
+            row = deliver.records(self.inbox)[-1]
+            self.assertEqual((row["sent"], row["compact"]), (1, "compact を打てなかった（窓の入力フィールドに打ちかけの字が在る）"))
         # 打てれば keepalive は送らない（compact の要求がキャッシュを読む。compact の後の会話の始まりの待ち受けが会話を起動する）
-        payload, warm = self.judged_warm(log, clock)
-        warm.compact_with = lambda got, payload, attrs, still: self.assertEqual(attrs[wake.COMPACT], "s1")
-        with self.rent_or_buy(({"action": "buy", "consult": False, "reason": "defer_limit_reached", "why": "w"}, None)):
-            self.assertIsNone(warm())
-        self.assertTrue(wake.compact_state(self.inbox, place, "s1")["judged"])
-        self.assertEqual(deliver.records(self.inbox)[-1]["status"], "compacted")
+        with self.subTest('打てれば keepalive は送らない'):
+            payload, warm = self.judged_warm(log, clock)
+            warm.compact_with = lambda got, payload, attrs, still: self.assertEqual(attrs[wake.COMPACT], "s1")
+            with self.rent_or_buy(({"action": "buy", "consult": False, "reason": "defer_limit_reached", "why": "w"}, None)):
+                self.assertIsNone(warm())
+            self.assertTrue(wake.compact_state(self.inbox, place, "s1")["judged"])
+            self.assertEqual(deliver.records(self.inbox)[-1]["status"], "compacted")
         # 裏の処理が残る会話では、打つ口が窓の状態の代わりに still で会話が動いたかを見る。動いていたら keepalive も送らず、
         # 台帳にも書かずにこの待ちを終える（_tick で会話が動いたと見た時と同じ）
-        provision.mark(self.place, self.src, {wake.COMPACT: None}, self.g)   # 前の打てた回の印（compact の後の待ち受けが外す物）
-        wake.compact_forget(self.inbox, place)
-        payload, warm = self.judged_warm(log, clock)
-        seen = []
+        with self.subTest('裏の処理が残る会話では、打つ口が窓の状態の代わりに still で会話が動いたか'):
+            provision.mark(self.place, self.src, {wake.COMPACT: None}, self.g)   # 前の打てた回の印（compact の後の待ち受けが外す物）
+            wake.compact_forget(self.inbox, place)
+            payload, warm = self.judged_warm(log, clock)
+            seen = []
 
-        def moved(got, payload, attrs, still):
-            seen.append(still())
-            with open(log, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"type": "user", "message": {"content": "<task-notification>"}}) + "\n")
-            seen.append(still())
-            return wake_hook.MOVED
-        warm.compact_with = moved
-        rows = len(deliver.records(self.inbox))
-        with self.rent_or_buy(({"action": "buy", "consult": False, "reason": "defer_limit_reached", "why": "w"}, None)):
-            self.assertIsNone(warm())
-            self.assertIsNone(warm())
-        self.assertEqual((seen, len(deliver.records(self.inbox))), ([True, False], rows))
-        self.assertNotIn(wake.COMPACT, self.g.worktree_attrs(self.place))
-        self.assertFalse(wake.compact_state(self.inbox, place, "s1")["judged"])
+            def moved(got, payload, attrs, still):
+                seen.append(still())
+                with open(log, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({"type": "user", "message": {"content": "<task-notification>"}}) + "\n")
+                seen.append(still())
+                return wake_hook.MOVED
+            warm.compact_with = moved
+            rows = len(deliver.records(self.inbox))
+            with self.rent_or_buy(({"action": "buy", "consult": False, "reason": "defer_limit_reached", "why": "w"}, None)):
+                self.assertIsNone(warm())
+                self.assertIsNone(warm())
+            self.assertEqual((seen, len(deliver.records(self.inbox))), ([True, False], rows))
+            self.assertNotIn(wake.COMPACT, self.g.worktree_attrs(self.place))
+            self.assertFalse(wake.compact_state(self.inbox, place, "s1")["judged"])
 
     def test_the_mark_command_asks_the_part_whether_compact_pays_when_it_is_typed(self):
         # --compact の印は、打った時に部品の action で決める（計画の 4.2。問いの費用は入れない）。部品が答えなければ文脈の下限
         # （COMPACT_FLOOR）か強制の線で決め、記録を読めなければ決めない（worth は None。呼ぶ側は印を書く）
-        attrs = {"role": "作業", "name": "調べ", "session": "s1"}
-        ttl, no_line = (lambda cwd, attrs: 300), (lambda got, attrs: (None, "線が分からない"))
-        big = self.transcript(wake.COMPACT_FLOOR * 2)
-        not_yet = {"action": "rent", "reason": "within_buy_cost", "why": "not yet", "spent": 0.1, "compact_cost": 0.5}
-        with self.rent_or_buy((not_yet, None)):
-            judged = wake_hook.mark_judge(self.place, attrs, big, ttl, no_line)
-        self.assertEqual((judged["worth"], judged["reason"], judged["spent"], judged["compact_cost"], judged["context"]),
-                         (False, "within_buy_cost", 0.1, 0.5, wake.COMPACT_FLOOR * 2))
-        self.assertIn("まだ compact の費用の元が取れないと答えた（not yet）", judged["why"])
-        self.assertEqual({k: v for k, v in self.asked_part[0][1].items() if k not in ("lifetime", "key")},
-                         {"ask": False, "deferred": 0, "defer_limit": 0, "forced": False})
-        small = self.transcript(1000)
-        with self.rent_or_buy(({"action": "buy", "reason": "reached_buy_cost", "why": "w"}, None)):
-            self.assertTrue(wake_hook.mark_judge(self.place, attrs, small, ttl, no_line)["worth"])   # 下限より小さくても部品の答えで決める
-        with self.rent_or_buy((None, "部品が入っていない"), (None, "部品が入っていない")):
-            self.assertEqual(wake_hook.mark_judge(self.place, attrs, big, ttl, no_line)["worth"], True)
-            judged = wake_hook.mark_judge(self.place, attrs, small, ttl, no_line)
-        self.assertEqual((judged["worth"], judged["reason"]), (False, "floor"))
+        with self.subTest('--compact の印は、打った時に部品の action で決める'):
+            attrs = {"role": "作業", "name": "調べ", "session": "s1"}
+            ttl, no_line = (lambda cwd, attrs: 300), (lambda got, attrs: (None, "線が分からない"))
+            big = self.transcript(wake.COMPACT_FLOOR * 2)
+            not_yet = {"action": "rent", "reason": "within_buy_cost", "why": "not yet", "spent": 0.1, "compact_cost": 0.5}
+            with self.rent_or_buy((not_yet, None)):
+                judged = wake_hook.mark_judge(self.place, attrs, big, ttl, no_line)
+            self.assertEqual((judged["worth"], judged["reason"], judged["spent"], judged["compact_cost"], judged["context"]),
+                             (False, "within_buy_cost", 0.1, 0.5, wake.COMPACT_FLOOR * 2))
+            self.assertIn("まだ compact の費用の元が取れないと答えた（not yet）", judged["why"])
+            self.assertEqual({k: v for k, v in self.asked_part[0][1].items() if k not in ("lifetime", "key")},
+                             {"ask": False, "deferred": 0, "defer_limit": 0, "forced": False})
+            small = self.transcript(1000)
+            with self.rent_or_buy(({"action": "buy", "reason": "reached_buy_cost", "why": "w"}, None)):
+                self.assertTrue(wake_hook.mark_judge(self.place, attrs, small, ttl, no_line)["worth"])   # 下限より小さくても部品の答えで決める
+            with self.rent_or_buy((None, "部品が入っていない"), (None, "部品が入っていない")):
+                self.assertEqual(wake_hook.mark_judge(self.place, attrs, big, ttl, no_line)["worth"], True)
+                judged = wake_hook.mark_judge(self.place, attrs, small, ttl, no_line)
+            self.assertEqual((judged["worth"], judged["reason"]), (False, "floor"))
         # 部品が答えず下限より小さくても、強制の線に着いていれば元が取れると見る
-        with self.rent_or_buy((None, "部品が入っていない")):
-            self.assertTrue(wake_hook.mark_judge(self.place, attrs, small, ttl, lambda got, attrs: (1000, None))["worth"])
-        with self.rent_or_buy():
-            judged = wake_hook.mark_judge(self.place, attrs, None, ttl, no_line)
-            self.assertEqual((judged["worth"], judged["context"]), (None, None))
-            self.assertIn("会話の記録が見つからない", judged["why"])
-            self.assertIsNone(wake_hook.mark_judge(self.place, attrs, "/none/t.jsonl", ttl, no_line)["worth"])
-        self.assertEqual(self.asked_part, [])
+        with self.subTest('部品が答えず下限より小さくても、強制の線に着いていれば元が取れると見る'):
+            with self.rent_or_buy((None, "部品が入っていない")):
+                self.assertTrue(wake_hook.mark_judge(self.place, attrs, small, ttl, lambda got, attrs: (1000, None))["worth"])
+            with self.rent_or_buy():
+                judged = wake_hook.mark_judge(self.place, attrs, None, ttl, no_line)
+                self.assertEqual((judged["worth"], judged["context"]), (None, None))
+                self.assertIn("会話の記録が見つからない", judged["why"])
+                self.assertIsNone(wake_hook.mark_judge(self.place, attrs, "/none/t.jsonl", ttl, no_line)["worth"])
+            self.assertEqual(self.asked_part, [])
 
     def test_at_the_forced_line_it_compacts_without_asking_even_without_the_part(self):
         # 文脈が強制の線（自動の compact の線の手前）に着いたら forced を真にして聞き、部品は聞かずに buy と答える（設計書の 2.3）。
         # 部品が無い・答えないときも、着いていれば打つ（自動の compact の線を上げた後に会話が伸び続けない）
-        log, clock = self.transcript(150000), [1240.0]
-        payload, warm = self.judged_warm(log, clock)
-        warm.line = 150000
-        typed = []
-        warm.compact_with = lambda got, payload, attrs, still: typed.append(attrs[wake.COMPACT_FOCUS])
-        with self.rent_or_buy(({"action": "buy", "consult": False, "reason": "forced", "why": "w"}, None)):
-            self.assertIsNone(warm())
-        self.assertTrue(self.asked_part[0][1]["forced"])
-        self.assertEqual(typed, [None])
-        provision.mark(self.place, self.src, {wake.COMPACT: None}, self.g)   # compact の後の会話の始まりの待ち受けが外す物
-        wake.compact_forget(self.inbox, self.g.git_dir(self.place))
-        payload, warm = self.judged_warm(log, clock)
-        warm.line, warm.plan = 150000, None
-        warm.compact_with = lambda got, payload, attrs, still: typed.append(attrs[wake.COMPACT_FOCUS])
-        with self.rent_or_buy((None, "部品が入っていない")):
-            self.assertIsNone(warm())
-        self.assertEqual(typed, [None, None])
-        keep, row = deliver.records(self.inbox)[-2:]   # keepalive の行と、打った口を書く compact の行
-        self.assertEqual((keep["status"], keep["compact"], row["kind"], row["mouth"]), ("compacted", "forced", "compact", "forced"))
+        with self.subTest('文脈が強制の線に着けば、部品に聞かずに打つ'):
+            log, clock = self.transcript(150000), [1240.0]
+            payload, warm = self.judged_warm(log, clock)
+            warm.line = 150000
+            typed = []
+            warm.compact_with = lambda got, payload, attrs, still: typed.append(attrs[wake.COMPACT_FOCUS])
+            with self.rent_or_buy(({"action": "buy", "consult": False, "reason": "forced", "why": "w"}, None)):
+                self.assertIsNone(warm())
+            self.assertTrue(self.asked_part[0][1]["forced"])
+            self.assertEqual(typed, [None])
+            provision.mark(self.place, self.src, {wake.COMPACT: None}, self.g)   # compact の後の会話の始まりの待ち受けが外す物
+            wake.compact_forget(self.inbox, self.g.git_dir(self.place))
+            payload, warm = self.judged_warm(log, clock)
+            warm.line, warm.plan = 150000, None
+            warm.compact_with = lambda got, payload, attrs, still: typed.append(attrs[wake.COMPACT_FOCUS])
+            with self.rent_or_buy((None, "部品が入っていない")):
+                self.assertIsNone(warm())
+            self.assertEqual(typed, [None, None])
+            keep, row = deliver.records(self.inbox)[-2:]   # keepalive の行と、打った口を書く compact の行
+            self.assertEqual((keep["status"], keep["compact"], row["kind"], row["mouth"]), ("compacted", "forced", "compact", "forced"))
         # 線の手前なら forced は偽で、部品が答えなければ打たずに keepalive を送る
-        provision.mark(self.place, self.src, {wake.COMPACT: None}, self.g)
-        wake.compact_forget(self.inbox, self.g.git_dir(self.place))
-        payload, warm = self.judged_warm(log, clock)
-        warm.line, warm.plan = 150001, None
-        with self.rent_or_buy((None, "部品が入っていない")):
-            self.assertEqual(warm(), "（keepalive）")
-        self.assertEqual(deliver.records(self.inbox)[-1]["compact"], "部品が入っていない")
+        with self.subTest('線の手前なら forced は偽で、部品が答えなければ打たずに keepaliv'):
+            provision.mark(self.place, self.src, {wake.COMPACT: None}, self.g)
+            wake.compact_forget(self.inbox, self.g.git_dir(self.place))
+            payload, warm = self.judged_warm(log, clock)
+            warm.line, warm.plan = 150001, None
+            with self.rent_or_buy((None, "部品が入っていない")):
+                self.assertEqual(warm(), "（keepalive）")
+            self.assertEqual(deliver.records(self.inbox)[-1]["compact"], "部品が入っていない")
 
     def test_the_forced_line_overrides_a_part_that_does_not_answer_buy(self):
         # forced を知らない古い版の部品が rent と答えても、線に着いていれば buy にする（線は自動の compact を上げた後の歯止め）
@@ -2445,53 +2521,56 @@ class Hook(unittest.TestCase):
     def test_a_skip_end_answer_is_not_counted_and_the_wait_is_not_asked_again(self):
         # 終わり際の会話は skip: end と答える。延ばした回数に数えず、その待ちでは問い直さず、延期の上限でも打たない（計画の 4.2）。
         # 待ち受けの送った文で始まっていないターンが終わったら（新しい待ち）、印を下ろす
-        self.assertIn("skip: end", wake_hook.CONSULT_TEXT)
-        log, clock = self.transcript(150000), [1240.0]
-        payload, warm = self.judged_warm(log, clock)
-        place = self.g.git_dir(self.place)
-        with self.rent_or_buy(({"action": "buy", "consult": True, "reason": "reached_buy_cost", "why": "w"}, None)):
-            warm()
-        write_line(log, {"type": "user", "message": {"content": wake_hook.CONSULT_TEXT}})
-        write_line(log, {"type": "assistant", "message": {"content": [{"type": "text", "text": "skip: end, delivering next"}]}})
-        with self.rent_or_buy(({"action": "rent", "consult": False, "reason": "consult_deferred", "why": "w"}, None)):
-            wake_hook.compact_turn(self.plan(), payload, self.g.worktree_attrs(self.place), Window(self.place), me=lambda: ME)
-        self.assertEqual(wake.compact_state(self.inbox, place, "s1"), {"asked": False, "deferred": 0, "ending": True, "judged": False, "forced": False})
-        self.assertEqual(deliver.records(self.inbox)[-1]["reply"], "end")
-        payload, warm = self.judged_warm(log, clock)
-        with mock.patch.object(wake_hook, "RENT", lambda *a, **k: self.fail("終わり際の待ちで部品に聞いた")):
-            self.assertEqual(warm(), "（keepalive）")
-        self.assertIn("skip: end", deliver.records(self.inbox)[-1]["compact"])
+        with self.subTest('終わり際の会話の skip は数えない'):
+            self.assertIn("skip: end", wake_hook.CONSULT_TEXT)
+            log, clock = self.transcript(150000), [1240.0]
+            payload, warm = self.judged_warm(log, clock)
+            place = self.g.git_dir(self.place)
+            with self.rent_or_buy(({"action": "buy", "consult": True, "reason": "reached_buy_cost", "why": "w"}, None)):
+                warm()
+            write_line(log, {"type": "user", "message": {"content": wake_hook.CONSULT_TEXT}})
+            write_line(log, {"type": "assistant", "message": {"content": [{"type": "text", "text": "skip: end, delivering next"}]}})
+            with self.rent_or_buy(({"action": "rent", "consult": False, "reason": "consult_deferred", "why": "w"}, None)):
+                wake_hook.compact_turn(self.plan(), payload, self.g.worktree_attrs(self.place), Window(self.place), me=lambda: ME)
+            self.assertEqual(wake.compact_state(self.inbox, place, "s1"), {"asked": False, "deferred": 0, "ending": True, "judged": False, "forced": False})
+            self.assertEqual(deliver.records(self.inbox)[-1]["reply"], "end")
+            payload, warm = self.judged_warm(log, clock)
+            with mock.patch.object(wake_hook, "RENT", lambda *a, **k: self.fail("終わり際の待ちで部品に聞いた")):
+                self.assertEqual(warm(), "（keepalive）")
+            self.assertIn("skip: end", deliver.records(self.inbox)[-1]["compact"])
         # 強制の線には、終わり際でも着けば打つ
-        payload, warm = self.judged_warm(log, clock)
-        warm.line, typed = 150000, []
-        warm.compact_with = lambda got, payload, attrs, still: typed.append(1)
-        with mock.patch.object(wake_hook, "RENT", lambda *a, **k: self.fail("終わり際の待ちで部品に聞いた")):
-            self.assertIsNone(warm())
-        self.assertEqual(typed, [1])
-        provision.mark(self.place, self.src, {wake.COMPACT: None, wake.COMPACT_FOCUS: None}, self.g)
-        wake.compact_note(self.inbox, place, "s1", deferred=1, ending=True)
+        with self.subTest('強制の線には、終わり際でも着けば打つ'):
+            payload, warm = self.judged_warm(log, clock)
+            warm.line, typed = 150000, []
+            warm.compact_with = lambda got, payload, attrs, still: typed.append(1)
+            with mock.patch.object(wake_hook, "RENT", lambda *a, **k: self.fail("終わり際の待ちで部品に聞いた")):
+                self.assertIsNone(warm())
+            self.assertEqual(typed, [1])
+            provision.mark(self.place, self.src, {wake.COMPACT: None, wake.COMPACT_FOCUS: None}, self.g)
+            wake.compact_note(self.inbox, place, "s1", deferred=1, ending=True)
         # 待ち受けの文で始まったターンの終わりでは下ろさず、人の文で始まったターンの終わりで下ろす
-        conf = {"every": 240, "text": "（keepalive）", "ttl": 300, "limit": 2}
-        stop = {**payload, "cwd": self.place}
-        attrs_of = lambda cwd: self.g.worktree_attrs(self.place)
+        with self.subTest('待ち受けの文で始まったターンの終わりでは下ろさず、人の文で始まったターンの終わり'):
+            conf = {"every": 240, "text": "（keepalive）", "ttl": 300, "limit": 2}
+            stop = {**payload, "cwd": self.place}
+            attrs_of = lambda cwd: self.g.worktree_attrs(self.place)
 
-        def turn_end():
-            with mock.patch.object(wake_hook, "RENT", lambda *a, **k: (None, "部品が入っていない")):
-                self.assertIsNotNone(wake_hook.warm_for(self.plan(), stop, conf_of=lambda cwd, attrs, read: conf, attrs_of=attrs_of,
-                                                        line_of=lambda got, attrs: (None, "線が分からない")))
-        write_line(log, {"type": "user", "message": {"content": "Stop hook blocking error: （keepalive）"}})
-        write_line(log, {"type": "assistant", "message": {"content": [{"type": "text", "text": "waiting"}]}})
-        turn_end()
-        self.assertTrue(wake.compact_state(self.inbox, place, "s1")["ending"])
-        write_line(log, {"type": "user", "message": {"content": "次はこれ"}})
-        write_line(log, {"type": "assistant", "message": {"content": [{"type": "text", "text": "やった"}]}})
-        turn_end()
-        self.assertEqual(wake.compact_state(self.inbox, place, "s1"), {"asked": False, "deferred": 1, "ending": False, "judged": False, "forced": False})
-        self.assertTrue(wake_hook.ending({"go": False, "why": "End"}))
-        self.assertFalse(wake_hook.ending({"go": False, "why": "endless loop"}))
-        self.assertTrue(wake_hook.ending({"go": False, "why": "end. delivering next"}))
-        self.assertFalse(wake_hook.ending({"go": False, "why": "end user is typing"}))   # end の後が語なら、人が打ちそうだという skip
-        self.assertFalse(wake_hook.ending({"go": True, "prep": {"focus": "end"}}))
+            def turn_end():
+                with mock.patch.object(wake_hook, "RENT", lambda *a, **k: (None, "部品が入っていない")):
+                    self.assertIsNotNone(wake_hook.warm_for(self.plan(), stop, conf_of=lambda cwd, attrs, read: conf, attrs_of=attrs_of,
+                                                            line_of=lambda got, attrs: (None, "線が分からない")))
+            write_line(log, {"type": "user", "message": {"content": "Stop hook blocking error: （keepalive）"}})
+            write_line(log, {"type": "assistant", "message": {"content": [{"type": "text", "text": "waiting"}]}})
+            turn_end()
+            self.assertTrue(wake.compact_state(self.inbox, place, "s1")["ending"])
+            write_line(log, {"type": "user", "message": {"content": "次はこれ"}})
+            write_line(log, {"type": "assistant", "message": {"content": [{"type": "text", "text": "やった"}]}})
+            turn_end()
+            self.assertEqual(wake.compact_state(self.inbox, place, "s1"), {"asked": False, "deferred": 1, "ending": False, "judged": False, "forced": False})
+            self.assertTrue(wake_hook.ending({"go": False, "why": "End"}))
+            self.assertFalse(wake_hook.ending({"go": False, "why": "endless loop"}))
+            self.assertTrue(wake_hook.ending({"go": False, "why": "end. delivering next"}))
+            self.assertFalse(wake_hook.ending({"go": False, "why": "end user is typing"}))   # end の後が語なら、人が打ちそうだという skip
+            self.assertFalse(wake_hook.ending({"go": True, "prep": {"focus": "end"}}))
 
     def test_the_ledger_tells_the_reply_kinds_of_the_question(self):
         self.assertEqual([wake_hook.reply_kind(a) for a in ({"go": True, "prep": {"focus": "f"}}, {"go": False, "why": "end"},
@@ -2905,7 +2984,9 @@ class Hook(unittest.TestCase):
         rc, _, err = self.hop_main(lambda: "/c/works-dispatch/9.9.9/dispatch/wake_hook.py", jump)
         self.assertEqual(rc, 2)   # この版のまま、順番待ちの頼みを渡した
         self.assertIn("頼みです（受付 a1）", err)
-        self.assertIn("替われないので、この版のまま待つ", err)
+        # 替われなかった先と訳を注記に出す（注記の言い回しは人と会話が読むだけ）
+        self.assertIn("/c/works-dispatch/9.9.9/dispatch/wake_hook.py", err)
+        self.assertIn("exec できない", err)
         self.assertEqual([r.get("status") for r in deliver.records(self.inbox) if r.get("kind") == "hopped"], [None, "failed"])
 
     def test_a_waiter_hands_an_ask_even_when_it_cannot_decide_the_keepalive(self):
@@ -2915,7 +2996,7 @@ class Hook(unittest.TestCase):
             rc, _, err = self.hop_main(lambda: None, lambda *a: 1 / 0)
         self.assertEqual(rc, 2)   # keepalive を決められなくても、待ち受けを落とさずに頼みを渡した
         self.assertIn("頼みです（受付 a1）", err)
-        self.assertIn("keepalive を送るかを決められないので送らない", err)
+        self.assertIn("ValueError: 形が違う", err)   # 決められなかった訳を注記に出す
 
     def test_a_waiter_that_cannot_read_the_record_keeps_waiting_in_its_own_version(self):
         provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1"}, self.g)
@@ -2926,7 +3007,7 @@ class Hook(unittest.TestCase):
         rc, _, err = self.hop_main(newer, lambda *a: 1 / 0)
         self.assertEqual(rc, 2)   # 待ち受けを落とさず、この版のまま渡した
         self.assertIn("頼みです（受付 a1）", err)
-        self.assertIn("探せないので、この版のまま待つ", err)
+        self.assertIn("TypeError: installPath が文字列でない", err)   # 探せなかった訳を注記に出す
 
     def test_a_handed_over_waiter_stops_when_the_talk_was_paused_meanwhile(self):
         provision.mark(self.place, self.src, {"role": "作業", "name": "調べ", "session": "s1", "limit-hold": "x"}, self.g)
@@ -3102,10 +3183,12 @@ class WakeFlow(unittest.TestCase):
         self.assertEqual((notice["to"], notice["kind"], notice["id"]), (to, wake.QUEUED, rec["id"]))
         self.assertEqual((rec["status"], rec["to"]["wake"]), ("queued", to))
         (item,) = wake.queued(self.inbox, self.dept_place())
-        self.assertIn("desk から）: これを調べて 終わったら、要約を", item["line"])
+        for given in (rec["id"], "desk", "これを調べて"):   # 受付番号・頼み元・本文が渡す 1 行に出る
+            self.assertIn(given, item["line"])
         self.assertEqual((item["marks"]["ask"], item["marks"]["boss"]), (rec["id"], "desk"))
         self.assertNotIn("ask", self.g.worktree_attrs(self.place))   # 属性は待ち受けが渡すときに書く
-        self.assertIn("順番待ちに積んだ（1 件目。待ち受けが渡す）", out)
+        self.assertIn(rec["id"], out)
+        self.assertIn(rec["detail"], out)   # 台帳に残した訳と同じ物を出す
 
     def restartable(self, stop_ok=True):
         """部署の裏の会話を止めて attach で戻せる形。窓は attach の画面で、Ctrl+Z の後の Esc でシェルに戻り、attach を打つと会話が戻る。
@@ -3149,46 +3232,52 @@ class WakeFlow(unittest.TestCase):
         self.restartable()
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "これを調べて")
         self.assertEqual(rc, 0, out)
-        self.assertIn("渡す待ち受けが居ない", out)
+        self.assertIn(orders.STALLED, out)
         self.assertEqual(len(wake.queued(self.inbox, self.dept_place())), 1)
         # 持ち主に打たせず、窓にも打たずに、裏の会話を止めて attach で起動し直す（戻った会話の始まりの待ち受けが渡す。受付 9dccfe）
         self.assertEqual((self.prompts(), self.stopped, self.attaches()), ([], ["s-dept"], ["claude-a1 attach d"]))
-        self.assertIn("窓に字を打たずに、部署の裏の会話 s-dept を止めて attach で起動し直した", out)
+        self.assertIn("s-dept", out)
         nudged = [r for r in deliver.records(self.inbox) if r.get("kind") == "nudged"]
         self.assertEqual([(r["why"], r["id"], r["status"]) for r in nudged],
-                         [("渡す待ち受けが居ない", wake.queued(self.inbox, self.dept_place())[0]["id"], "restarted")])
+                         [(orders.STALLED, wake.queued(self.inbox, self.dept_place())[0]["id"], "restarted")])
 
     def test_nudge_moves_a_held_department_and_leaves_a_typing_window_alone(self):
-        self.listen("調べ", self.dept_place())
-        provision.mark(self.place, self.src, {"ask": "a0", "delivered": "a0"}, self.g)
-        self.restartable()
-        rc, out = self.main(self.src, "--nudge", "調べ")
-        self.assertEqual((rc, self.prompts(), self.stopped), (0, [], []), out)
-        self.assertIn("順番待ちが空", out)   # 止まっていない
-        wake.enqueue(self.inbox, self.dept_place(), {"id": "a1", "line": "a1"})
-        deliver.log(self.inbox, {"id": "a1", "kind": "held", "place": self.place, "session": "s", "detail": "会話がまだ動いている"})
-        rc, out = self.main(self.src, "--nudge", "調べ")
-        self.assertEqual((rc, self.prompts(), self.stopped), (1, [], []), out)   # すぐ替わる訳なら動かさない（待ち受けの /clear とぶつけない）
-        self.assertIn("訳がすぐ替わる物なので打たなかった", out)
-        # 子の返事待ち・裏の処理で止めるのは古い版の待ち受けだけなので、起動し直して今の版で数え直させる（2026-10-18 の割り振り）
-        self.ports.term.screen = f"{'─' * 20}\n❯ \n{'─' * 20}\n"
-        for detail in ("子の頼みの返事を待っている（受付 c1）", wake_hook.NOT_CLEARED_BACKGROUND):
-            deliver.log(self.inbox, {"id": "a1", "kind": "held", "place": self.place, "session": "s", "detail": detail})
+        with self.subTest('止まっていない部署と、すぐ替わる訳で待つ部署は動かさない'):
+            self.listen("調べ", self.dept_place())
+            provision.mark(self.place, self.src, {"ask": "a0", "delivered": "a0"}, self.g)
+            self.restartable()
             rc, out = self.main(self.src, "--nudge", "調べ")
-            self.assertEqual((rc, self.prompts(), self.stopped), (0, [], ["s-dept"]), out)
-            self.stopped.clear()
-        deliver.log(self.inbox, {"id": "a1", "kind": "held", "place": self.place, "session": "s", "detail": "窓を確かめられない"})
-        provision.mark(self.place, self.src, {"rest": "s"}, self.g)
-        self.ports.term.screen = f"{'─' * 20}\n❯ 打ちかけ\n{'─' * 20}\n"
-        rc, out = self.main(self.src, "--nudge", "調べ")
-        self.assertEqual((rc, self.prompts(), self.stopped), (1, [], []), out)   # 人の打ちかけの字を消さない（attach の画面を閉じると消える）
-        self.assertIn("入力フィールドに人の打ちかけの字が在るので起動し直さなかった", out)
-        self.ports.term.screen = f"{'─' * 20}\n❯ \n{'─' * 20}\n"
-        rc, out = self.main(self.src, "--nudge", "調べ")
-        self.assertEqual(rc, 0, out)
-        self.assertIn("待ち受けが渡さずに待っている（窓を確かめられない）", out)
-        self.assertEqual((self.prompts(), self.stopped), ([], ["s-dept"]))
-        self.assertEqual(self.g.worktree_attrs(self.place).get("rest"), "s")   # 字を打たないので区切りの印は外れない
+            self.assertEqual((rc, self.prompts(), self.stopped), (0, [], []), out)
+            self.assertEqual([r for r in deliver.records(self.inbox) if r.get("kind") == "nudged"], [], out)   # 止まっていないので動かした記録も無い
+            wake.enqueue(self.inbox, self.dept_place(), {"id": "a1", "line": "a1"})
+            deliver.log(self.inbox, {"id": "a1", "kind": "held", "place": self.place, "session": "s",
+                                     "detail": f"前の会話を空にできないので渡さずに待つ（{busy_reason(self.place)}）"})
+            rc, out = self.main(self.src, "--nudge", "調べ")
+            self.assertEqual((rc, self.prompts(), self.stopped), (1, [], []), out)   # すぐ替わる訳なら動かさない（待ち受けの /clear とぶつけない）
+            self.assertIn(busy_reason(self.place), out)   # 台帳の held の訳を出す
+            self.assertEqual([r for r in deliver.records(self.inbox) if r.get("kind") == "nudged"], [], out)   # すぐ替わる訳では動かした記録も残さない
+        # 子の返事待ち・裏の処理で止めるのは古い版の待ち受けだけなので、起動し直して今の版で数え直させる（2026-10-18 の割り振り）
+        with self.subTest('子の返事待ち・裏の処理で止めるのは古い版の待ち受けだけなので、起動し直して今の版'):
+            self.ports.term.screen = f"{'─' * 20}\n❯ \n{'─' * 20}\n"
+            for detail in ("子の頼みの返事を待っている（受付 c1）", wake_hook.NOT_CLEARED_BACKGROUND):
+                deliver.log(self.inbox, {"id": "a1", "kind": "held", "place": self.place, "session": "s", "detail": detail})
+                rc, out = self.main(self.src, "--nudge", "調べ")
+                self.assertEqual((rc, self.prompts(), self.stopped), (0, [], ["s-dept"]), out)
+                self.stopped.clear()
+            deliver.log(self.inbox, {"id": "a1", "kind": "held", "place": self.place, "session": "s", "detail": "窓を確かめられない"})
+            provision.mark(self.place, self.src, {"rest": "s"}, self.g)
+            self.ports.term.screen = f"{'─' * 20}\n❯ 打ちかけ\n{'─' * 20}\n"
+            rc, out = self.main(self.src, "--nudge", "調べ")
+            self.assertEqual((rc, self.prompts(), self.stopped), (1, [], []), out)   # 人の打ちかけの字を消さない（attach の画面を閉じると消える）
+            self.assertIn(self.window, out)
+            self.assertIn("--nudge 調べ", out)   # 字を送るか消してから打ち直すコマンド
+            self.assertEqual([r["status"] for r in deliver.records(self.inbox) if r.get("kind") == "nudged"][-1], "failed")
+            self.ports.term.screen = f"{'─' * 20}\n❯ \n{'─' * 20}\n"
+            rc, out = self.main(self.src, "--nudge", "調べ")
+            self.assertEqual(rc, 0, out)
+            self.assertIn("窓を確かめられない", out)   # 台帳の held の訳を出す
+            self.assertEqual((self.prompts(), self.stopped), ([], ["s-dept"]))
+            self.assertEqual(self.g.worktree_attrs(self.place).get("rest"), "s")   # 字を打たないので区切りの印は外れない
 
     @unittest.skipIf(os.name == "nt", "Windows は会話と待ち受けを同じ印の更新の新しさで見るので、会話だけ生きている形を作れない")
     def test_nudge_restarts_over_a_clear_the_gone_watcher_left_unsent_but_not_over_other_text(self):
@@ -3213,38 +3302,44 @@ class WakeFlow(unittest.TestCase):
         # 受けたままの頼みを持つ会話（company.session）が会話の一覧から消え、窓には別の会話が居る: 待ち受けを張る者が居ないので
         # 止まっていると見分ける。起動し直しても別の会話には待ち受けが張られないので動かさず、動かす手を出す（2026-10-31 の
         # guided-resolver の本社。頼み 8908ab）
-        provision.mark(self.place, self.src, {"ask": "a0"}, self.g)   # 受けたまま、納品していない
-        wake.enqueue(self.inbox, self.dept_place(), {"id": "a1", "line": "a1"})
-        for p in self.ports.term._panes:
-            if p["pane_id"] == self.window:
-                p["agent_session"] = "s-other"
-        living = self.ports.list_sessions
-        self.ports.list_sessions = lambda cdir, include_done=False: [s for s in living(cdir, include_done) if s["sessionId"] != "s-dept"]
-        self.restartable()
-        self.ports.term.screen = f"{'─' * 20}\n❯ \n{'─' * 20}\n"
-        rc, out = self.main(self.src, "--tree")
-        self.assertIn("! 渡す待ち受けが居ない（受けたままの頼みを持つ会話がもう居ない）（--nudge 調べ --dry-run で動かし方を見る）", out)
-        rc, out = self.main(self.src, "--nudge", "調べ", "--dry-run")
-        self.assertEqual((rc, self.prompts()), (0, []), out)
-        self.assertIn("止まっている（渡す待ち受けが居ない（受けたままの頼み a0 を持つ会話 s-dept がもう居ない））", out)
-        self.assertIn(f"--nudge では動かせない: 窓 {self.window} の会話 s-other は部署の会話（s-dept）でない", out)
-        rc, out = self.main(self.src, "--nudge", "調べ")
-        self.assertEqual((rc, self.prompts(), self.stopped), (1, [], []), out)
-        self.assertIn("部署の会話（s-dept）でない", out)
-        nudged = [r for r in deliver.records(self.inbox) if r.get("kind") == "nudged"]
-        self.assertEqual([(r["id"], r["status"]) for r in nudged], [("a1", "failed")])
+        with self.subTest('受けたままの頼みを持つ会話が消え、窓に別の会話が居れば動かさない'):
+            provision.mark(self.place, self.src, {"ask": "a0"}, self.g)   # 受けたまま、納品していない
+            wake.enqueue(self.inbox, self.dept_place(), {"id": "a1", "line": "a1"})
+            for p in self.ports.term._panes:
+                if p["pane_id"] == self.window:
+                    p["agent_session"] = "s-other"
+            living = self.ports.list_sessions
+            self.ports.list_sessions = lambda cdir, include_done=False: [s for s in living(cdir, include_done) if s["sessionId"] != "s-dept"]
+            self.restartable()
+            self.ports.term.screen = f"{'─' * 20}\n❯ \n{'─' * 20}\n"
+            rc, out = self.main(self.src, "--tree")
+            self.assertIn(orders.STALLED, out)
+            self.assertIn("--nudge 調べ --dry-run", out)
+            rc, out = self.main(self.src, "--nudge", "調べ", "--dry-run")
+            self.assertEqual((rc, self.prompts()), (0, []), out)
+            for given in (orders.STALLED, "a0", "s-dept", self.window, "s-other"):   # 受けたままの頼み・居ない会話・窓とその会話
+                self.assertIn(given, out)
+            rc, out = self.main(self.src, "--nudge", "調べ")
+            self.assertEqual((rc, self.prompts(), self.stopped), (1, [], []), out)
+            self.assertIn("s-other", out)
+            nudged = [r for r in deliver.records(self.inbox) if r.get("kind") == "nudged"]
+            self.assertEqual([(r["id"], r["status"]) for r in nudged], [("a1", "failed")])
         # 窓の会話の印が無い（herdr が落とした）形は、部署の会話を止めて attach で起動し直す
-        for p in self.ports.term._panes:
-            if p["pane_id"] == self.window:
-                p["agent_session"] = None
-        rc, out = self.main(self.src, "--nudge", "調べ")   # 動き出したかは偽の一覧が s-dept でしか見せないので見ない
-        self.assertEqual((self.prompts(), self.stopped), ([], ["s-dept"]), out)
+        with self.subTest('窓の会話の印が無い'):
+            for p in self.ports.term._panes:
+                if p["pane_id"] == self.window:
+                    p["agent_session"] = None
+            rc, out = self.main(self.src, "--nudge", "調べ")   # 動き出したかは偽の一覧が s-dept でしか見せないので見ない
+            self.assertEqual((self.prompts(), self.stopped), ([], ["s-dept"]), out)
         # 会話が一覧に居れば、受けたままの頼みの間はターンの終わりに張られるので、順番待ちは止まっていない。手の空いた会話には、
         # 受けたままの頼みの納品を促す（nudge_idle。受付 ba1e73）
-        self.ports.list_sessions = living
-        rc, out = self.main(self.src, "--nudge", "調べ", "--dry-run")
-        self.assertNotIn("止まっている", out)
-        self.assertIn("受付 a0 をまだ納品していない。納品を促す 1 行を台帳に置き", out)
+        with self.subTest('会話が一覧に居れば、受けたままの頼みの間はターンの終わりに張られるので、順番待ち'):
+            self.ports.list_sessions = living
+            with mock.patch.object(orders, "nudge_idle", wraps=orders.nudge_idle) as idle:
+                rc, out = self.main(self.src, "--nudge", "調べ", "--dry-run")
+            self.assertEqual((rc, idle.call_count), (0, 1), out)
+            self.assertNotIn(orders.STALLED, out)
+            self.assertIn("a0", out)
 
     def idle_holder(self, state="blocked", status="idle", said="この 1 コマンドを打ってください: git checkout tools/hook.py"):
         """部署が受付 a0 を納品しないまま手を空けた形（会話の一覧の state・status を替える）。会話の記録の終わりに said の答えを置く。"""
@@ -3269,19 +3364,18 @@ class WakeFlow(unittest.TestCase):
         self.restartable()
         rc, out = self.main(self.src, "--nudge", "調べ", "--dry-run")
         self.assertEqual(rc, 0, out)
-        self.assertIn("受付 a0 をまだ納品していない。納品を促す 1 行を台帳に置き、その場所の待ち受けが渡す", out)
+        self.assertIn("a0", out)
         self.assertEqual([r for r in deliver.records(self.inbox) if r.get("kind") in (wake.SAY, "nudged")], [])
         rc, out = self.main(self.src, "--nudge", "調べ")
         self.assertEqual(rc, 0, out)
-        self.assertNotIn("止まっていない", out)
-        self.assertIn("最後の答えの頭: 「この 1 コマンドを打ってください: git checkout tools/hook.py」", out)
-        self.assertIn("その場所の待ち受けが促しの 1 行を渡す", out)
+        self.assertIn("この 1 コマンドを打ってください: git checkout tools/hook.py", out)   # 会話の最後の答え（問い）を出す
         self.assertEqual((self.prompts(), self.stopped, self.attaches()), ([], [], []))   # 窓に打たず、起動し直さない
         [said] = [r for r in deliver.records(self.inbox) if r.get("kind") == wake.SAY]
         self.assertEqual((said["id"], said["to"]), ("a0", wake.address("src", "調べ")))
         self.assertIn("--deliver", said["text"])
-        self.assertIn("この会話は手が空いたまま。", said["text"])   # 落ちていない会話に「落ちて戻った」と書かない
-        self.assertNotIn("落ちて戻った", said["text"])
+        # 落ちていない会話への促し（fell が偽）の文で、落ちて戻った会話への促しの文でない（頭の時刻は比べない）
+        self.assertTrue(said["text"].endswith(orders.nudge_line("a0", "desk", fell=False).split(": ", 1)[1]), said["text"])
+        self.assertFalse(said["text"].endswith(orders.nudge_line("a0", "desk", fell=True).split(": ", 1)[1]), said["text"])
         nudged = [r for r in deliver.records(self.inbox) if r.get("kind") == "nudged"]
         self.assertEqual([(r["id"], r["status"]) for r in nudged], [("a0", "noticed")])
 
@@ -3297,7 +3391,7 @@ class WakeFlow(unittest.TestCase):
         self.ports.term.screen = f"{'─' * 20}\n❯ \n{'─' * 20}\n"
         rc, out = self.main(self.src, "--nudge", "調べ")
         self.assertEqual(rc, 0, out)
-        self.assertNotIn("最後の答えの頭", out)   # 人の返事を待っていない（state が done）なら問いは出さない
+        self.assertNotIn("この 1 コマンドを打ってください", out)   # 人の返事を待っていない（state が done）なら問いは出さない
         self.assertEqual((self.prompts(), self.stopped, self.attaches()), ([], ["s-dept"], ["claude-a1 attach d"]))
         self.assertEqual([r["id"] for r in deliver.records(self.inbox) if r.get("kind") == wake.SAY], ["a0"])
         nudged = [r for r in deliver.records(self.inbox) if r.get("kind") == "nudged"]
@@ -3307,8 +3401,10 @@ class WakeFlow(unittest.TestCase):
         self.ports.term.screen = f"{'─' * 20}\n❯ 打ちかけ\n{'─' * 20}\n"
         rc, out = self.main(self.src, "--nudge", "調べ")
         self.assertEqual((rc, self.stopped), (1, []), out)
-        self.assertIn("裏の会話を起動し直さなかった（窓 ", out)
-        self.assertIn("入力フィールドに人の打ちかけの字が在る", out)
+        self.assertIn(self.window, out)
+        self.assertIn("--nudge 調べ", out)   # 字を送るか消してから打ち直すコマンド
+        nudged = [r for r in deliver.records(self.inbox) if r.get("kind") == "nudged"]
+        self.assertEqual([r["status"] for r in nudged], ["restarted", "failed"])
 
     def test_nudge_leaves_a_holder_mid_turn_or_waiting_for_an_answer_alone(self):
         # ターンの途中の会話・確かめの画面で人の答えを待つ会話と、答え待ち（--wait）の頼みは促さない
@@ -3317,17 +3413,20 @@ class WakeFlow(unittest.TestCase):
         self.restartable()
         rc, out = self.main(self.src, "--nudge", "調べ")
         self.assertEqual(rc, 0, out)
-        self.assertIn("ターンの途中なので、受付 a0 の納品を促さない", out)
+        self.assertIn("a0", out)
+        mid_turn = out
         self.idle_holder(state="blocked", status="waiting")   # 確かめの画面: blocked でも問いの頭は出さない（答えるのは部署の窓）
         rc, out = self.main(self.src, "--nudge", "調べ")
         self.assertEqual(rc, 0, out)
-        self.assertIn("確かめの画面で人の答えを待っている（部署の窓で答える）なので、受付 a0 の納品を促さない", out)
-        self.assertNotIn("最後の答えの頭", out)
+        self.assertIn("a0", out)
+        self.assertNotEqual(out, mid_turn)   # 確かめの画面の訳は、ターンの途中と分けて出す
+        self.assertNotIn("この 1 コマンドを打ってください", out)
         self.idle_holder(state="blocked", status="idle")   # 答え待ちは、手が空いていても促さない
         provision.mark(self.place, self.src, {"waiting": "a0", "waiting-why": "持ち主の答え"}, self.g)
         rc, out = self.main(self.src, "--nudge", "調べ")
         self.assertEqual(rc, 0, out)
-        self.assertIn("受付 a0 は答え待ち（持ち主の答え）なので、納品を促さない", out)
+        self.assertIn("a0", out)
+        self.assertIn("持ち主の答え", out)   # 答え待ちの訳（company.waiting-why）を出す
         self.assertEqual([r for r in deliver.records(self.inbox) if r.get("kind") in (wake.SAY, "nudged")], [])
         self.assertEqual((self.prompts(), self.stopped), ([], []))
 
@@ -3339,8 +3438,8 @@ class WakeFlow(unittest.TestCase):
             with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
                 rc = orders.nudge_idle(a, dept, "調べ", self.inbox, self.dept_place(), [], self.ports, {}, self.src, [], None)
         self.assertEqual(rc, 1, out.getvalue())
-        self.assertIn("部署の名前（company.name）が無いので、受付 a0 の納品を促す 1 行を台帳に置けない", out.getvalue())
-        self.assertNotIn("台帳に置き、", out.getvalue())
+        self.assertIn("company.name", out.getvalue())   # 欠けた属性の名前
+        self.assertIn("a0", out.getvalue())
 
     def test_nudge_puts_the_window_back_when_the_talk_cannot_be_stopped(self):
         # 裏の会話を止められなければ、シェルに戻した窓を attach で戻し、動かせなかったと台帳に残す
@@ -3351,7 +3450,8 @@ class WakeFlow(unittest.TestCase):
         self.restartable(stop_ok=False)
         rc, out = self.main(self.src, "--nudge", "調べ")
         self.assertEqual((rc, self.prompts(), self.attaches()), (1, [], ["claude-a1 attach d"]), out)
-        self.assertIn("部署の会話 s-dept を止められなかった（No job matching）。窓は attach で戻した", out)
+        self.assertIn("s-dept", out)
+        self.assertIn("No job matching", out)   # 止める口の答え
         nudged = [r for r in deliver.records(self.inbox) if r.get("kind") == "nudged"]
         self.assertEqual([(r["id"], r["status"]) for r in nudged], [("a1", "failed")])
 
@@ -3368,7 +3468,7 @@ class WakeFlow(unittest.TestCase):
             for x in listed(cdir, include_done)]
         rc, out = self.main(self.src, "--nudge", "調べ")
         self.assertEqual((rc, self.prompts(), self.stopped, self.attaches()), (1, [], [], ["claude-a1 attach d"]), out)
-        self.assertIn("ターンが始まったので起動し直さなかった", out)
+        self.assertEqual([r["status"] for r in deliver.records(self.inbox) if r.get("kind") == "nudged"], ["failed"])
 
     def test_nudge_puts_the_window_back_when_the_window_does_not_return_to_the_shell(self):
         # attach の画面を外してもシェルが前に出なければ、止めずに終え、窓を attach で戻そうとする（会話もシェルも居ない窓を残さない）
@@ -3379,17 +3479,27 @@ class WakeFlow(unittest.TestCase):
         self.restartable()
         h, keys = self.ports.term, self.ports.term.send_keys
         h.send_keys = lambda pane, *k: (keys(pane, *k), h.talking.add(pane))   # 会話の一覧の画面が残り、シェルが前に出ない
-        rc, out = self.main(self.src, "--nudge", "調べ")
+        backs, real = [], orders.revive
+
+        def revive(*args, **kw):
+            backs.append(real(*args, **kw))
+            return backs[-1]
+        with mock.patch.object(orders, "revive", revive):
+            rc, out = self.main(self.src, "--nudge", "調べ")
         self.assertEqual((rc, self.prompts(), self.stopped), (1, [], []), out)
-        self.assertIn("シェルに戻せないので起動し直さなかった", out)
-        self.assertIn("部署のペインの前にシェルが居ない", out)   # 戻そうとした訳
+        self.assertIn(self.window, out)
+        self.assertEqual([b[0] for b in backs], [None])   # 窓を attach で戻そうとして、戻せなかった
+        self.assertIn(backs[0][1], out)   # 戻せなかった訳を出す
+        self.assertEqual([r["status"] for r in deliver.records(self.inbox) if r.get("kind") == "nudged"], ["failed"])
 
     def test_say_to_the_front_desk_without_a_listener_never_revives_or_restarts_it(self):
         # 窓口は手前の会話なので、窓に会話が居なくても attach を打たず、裏で起動し直しもしない
         ports = types.SimpleNamespace(term=None)   # 窓にも一覧にも触れば落ちる
         said = orders._say_handoff({"head_office": True, "attrs": {"role": "窓口"}, "path": "/x"}, False, None, False,
                                    "/i", "/g", [], ports, {}, None)
-        self.assertIn("窓口の会話の次のターンの終わりに張られる待ち受けが渡す", said)
+        self.assertTrue(said)
+        plain = orders._say_handoff({"head_office": True, "attrs": {}, "path": "/x"}, False, None, True, "/i", "/g", [], ports, {}, None)
+        self.assertNotEqual(said, plain)   # 役の無い会話の渡り方と取り違えない
 
     def test_nudge_does_not_restart_a_talk_that_left_background_tasks(self):
         # 前のターンが裏の処理を残した会話は、止めるとその処理が消えるので起動し直さない（処理が終われば知らせでターンが回る）
@@ -3401,17 +3511,18 @@ class WakeFlow(unittest.TestCase):
         self.restartable()
         rc, out = self.main(self.src, "--nudge", "調べ")
         self.assertEqual((rc, self.prompts(), self.stopped, self.attaches()), (1, [], [], []), out)
-        self.assertIn("前のターンで裏の処理を残している", out)
+        self.assertEqual([r["status"] for r in deliver.records(self.inbox) if r.get("kind") == "nudged"], ["failed"])
 
     def test_the_same_ask_twice_returns_the_first_number(self):
         self.listen("調べ", self.dept_place())
         self.assertEqual(self.main(self.src, "--ask", "調べ", "--text", "これを調べて")[0], 0)
         first = wake.queued(self.inbox, self.dept_place())[0]["id"]
+        asks = len([r for r in deliver.records(self.inbox) if r.get("kind") == "ask"])
         self.ports.now = lambda: 99
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "  これを調べて  ")
         self.assertEqual(rc, 0, out)
         self.assertIn(f"頼み {first} → ", out)
-        self.assertIn("同じ中身の頼みが順番待ちに積まれている", out)
+        self.assertEqual(len([r for r in deliver.records(self.inbox) if r.get("kind") == "ask"]), asks)   # 頼みの行を足さない
         self.assertEqual(len(wake.queued(self.inbox, self.dept_place())), 1)
 
     def test_a_department_busy_with_an_ask_gets_the_next_one_queued(self):
@@ -3420,7 +3531,10 @@ class WakeFlow(unittest.TestCase):
         self.listen("調べ", self.dept_place(), owner=dead_pid())
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "次の頼み")
         self.assertEqual(rc, 0, out)
-        self.assertIn("順番待ちに積んだ（1 件目。部署の待ち受けが張られたら渡す）", out)
+        rec = [r for r in deliver.records(self.inbox) if r.get("kind") == "ask"][-1]
+        self.assertEqual(rec["status"], "queued")
+        self.assertEqual(len(wake.queued(self.inbox, self.dept_place())), 1)
+        self.assertIn(rec["detail"], out)   # 台帳に残した訳と同じ物を出す
         self.assertEqual(self.prompts(), [])
 
     def test_an_idle_department_without_a_living_waiter_gets_the_ask_queued_not_typed(self):
@@ -3430,7 +3544,7 @@ class WakeFlow(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertEqual(self.prompts(), [])
         self.assertEqual(len(wake.queued(self.inbox, self.dept_place())), 1)
-        self.assertIn("順番待ちが止まっていた（渡す待ち受けが居ない）", out)
+        self.assertIn(orders.STALLED, out)
 
     def test_an_ask_handed_meanwhile_keeps_its_asker_and_the_new_one_queues(self):
         # 部署を読んだ時は頼みが無く待ち受けも見えなかったが、積む前に待ち受けが順番待ちの頼み a1 を渡した。新しい頼みは順番待ちに
@@ -3451,13 +3565,14 @@ class WakeFlow(unittest.TestCase):
         self.assertEqual((attrs["ask"], attrs["boss"]), ("a1", "段取り"))
         (item,) = wake.queued(self.inbox, self.dept_place())
         self.assertEqual((item["marks"]["boss"], deliver.records(self.inbox)[-1]["status"]), ("desk", "queued"))
-        self.assertIn("部署の待ち受けが張られたら渡す", out)
+        self.assertIn(deliver.records(self.inbox)[-1]["detail"], out)   # 台帳に残した訳と同じ物を出す
 
     def test_ask_dry_run_names_the_queue(self):
         self.listen("調べ", self.dept_place())
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "調べて", "--dry-run")
         self.assertEqual(rc, 0, out)
-        self.assertIn("順番待ちに積む（1 件目。窓には打たない。待ち受けが渡す）", out)
+        self.assertIn(wake.queue_dir(self.inbox, self.dept_place()), out)   # 積む順番待ちの置き場
+        self.assertIn("調べて", out)   # 渡す 1 行
         self.assertEqual((deliver.records(self.inbox), wake.queued(self.inbox, self.dept_place())), ([], []))
 
     def queue_two(self):
@@ -3488,7 +3603,8 @@ class WakeFlow(unittest.TestCase):
         provision.mark(self.place, self.src, {"ask": "a0", "boss": "desk"}, self.g)
         rc, out = self.main(self.place, "--take", urgent["id"])
         self.assertEqual(rc, 2, out)
-        self.assertIn("受付 a0 をまだ納品していない", out)
+        self.assertIn("a0", out)
+        self.assertEqual(len(wake.queued(self.inbox, self.dept_place())), 2)   # 取らない
         provision.mark(self.place, self.src, {"delivered": "a0"}, self.g)
         rc, out = self.main(self.src, "--take", urgent["id"])   # 本社（窓口）の順番待ちには無い
         self.assertEqual(rc, 2, out)
@@ -3506,7 +3622,7 @@ class WakeFlow(unittest.TestCase):
         with mock.patch.object(orders, "ask", fake_ask):
             rc, out = self.main(self.place, "--take", urgent["id"], "--ask", "作業", "--task", "調べ：急ぎ", "--branch", "b/x")
         self.assertEqual(rc, 1, out)
-        self.assertIn("元の順番待ちの同じ場所に戻した", out)
+        self.assertIn(urgent["id"], out)
         self.assertEqual([q["id"] for q in wake.queued(self.inbox, self.dept_place())], [first["id"], urgent["id"]])
         rc_of_ask = 0
         with mock.patch.object(orders, "ask", fake_ask):
@@ -3564,7 +3680,9 @@ class WakeFlow(unittest.TestCase):
         self.assertEqual([r["id"] for r in deliver.records(self.inbox) if r.get("kind") == "withdrawn"], [first["id"]])
         rc, out = self.main(self.place, "--withdraw", first["id"])
         self.assertEqual(rc, 2, out)
-        self.assertIn("どの順番待ちにも無く、台帳ではもう閉じている（取り下げ）", out)
+        self.assertIn(first["id"], out)
+        self.assertIn(ledger.STATES["dropped"][0], out)   # 台帳の閉じ方の字
+        self.assertEqual(len([r for r in deliver.records(self.inbox) if r.get("kind") == "withdrawn"]), 1)
 
     def test_withdraw_closes_an_ask_the_ledger_shows_open_with_nothing_behind_it(self):
         # 2026-10-17 の朝、--withdraw の無かった頃に段取りが順番待ちの件を手で動かし、台帳には順番待ちのまま残った（my_notes の 5b3433 など）
@@ -3575,8 +3693,8 @@ class WakeFlow(unittest.TestCase):
         self.assertFalse([r for r in deliver.records(self.inbox) if r.get("kind") == "withdrawn"])
         rc, out = self.main(self.place, "--withdraw", first["id"])
         self.assertEqual(rc, 0, out)
-        self.assertIn("順番待ちの置き場に無いので、台帳で「順番待ち」と出る頼みを取り下げで閉じた", out)
         (row,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "withdrawn"]
+        self.assertIn(row["why"], out)   # 台帳に残した訳を出す
         self.assertEqual((row["id"], row["was"], row["why"]), (first["id"], "queued", "順番待ちの置き場に無い"))
         self.assertEqual(self.main(self.place, "--withdraw", first["id"])[0], 2)
 
@@ -3585,7 +3703,9 @@ class WakeFlow(unittest.TestCase):
         held = self.g.worktree_attrs(self.place)["ask"]
         rc, out = self.main(self.src, "--withdraw", held)
         self.assertEqual(rc, 2, out)
-        self.assertIn(f"の部署がまだ受けている（取り下げるなら、その旨を --note {held} で足す）", out)
+        self.assertIn(self.place, out)
+        self.assertIn(f"--note {held}", out)   # 取り下げを伝えるコマンド
+        self.assertFalse([r for r in deliver.records(self.inbox) if r.get("kind") == "withdrawn"])
         # 部署の属性がほかの頼みに替わった（10-16 の 75aeee は、69 秒後に同じ本文の頼みが別の部署へ出た）なら閉じる
         provision.mark(self.place, self.src, {"ask": "20261019-000000-ffffff"}, self.g)
         rc, out = self.main(self.src, "--withdraw", held)
@@ -3605,7 +3725,8 @@ class WakeFlow(unittest.TestCase):
         self.assertEqual((row["was"], row["why"]), ("working", f"受けた作業場 {gone} がもう無い"))
         rc, out = self.main(self.src, "--withdraw", "20261016-103911-bbbbbb")
         self.assertEqual(rc, 2, out)
-        self.assertIn("どの順番待ちにも、読んだ台帳にも無い", out)
+        self.assertIn("20261016-103911-bbbbbb", out)
+        self.assertEqual(len([r for r in deliver.records(self.inbox) if r.get("kind") == "withdrawn"]), 1)
 
     def test_an_ask_taken_here_is_working_and_not_closed_by_withdraw(self):
         # --take をその場で受けた頼みは taken の行だけを残す。台帳で順番待ちのままに見えると、--todo が置き場に無いと注記した
@@ -3613,7 +3734,8 @@ class WakeFlow(unittest.TestCase):
         self.assertEqual(self.main(self.place, "--take", first["id"])[0], 0)
         rc, out = self.main(self.src, "--withdraw", first["id"])
         self.assertEqual(rc, 2, out)
-        self.assertIn("の部署がまだ受けている", out)
+        self.assertIn(f"--note {first['id']}", out)   # 取り下げを伝えるコマンド
+        self.assertFalse([r for r in deliver.records(self.inbox) if r.get("kind") == "withdrawn"])
 
     def test_first_moves_a_queued_ask_to_the_head_and_leaves_it_in_the_ledger(self):
         first, urgent = self.queue_two()
@@ -3648,14 +3770,15 @@ class WakeFlow(unittest.TestCase):
         to = self.listen("調べ", self.dept_place(), owner=dead_pid())
         rc, out = self.main(self.src, "--note", "a0", "--text", "取り下げる。止めて、どこまで済んだかを返す")
         self.assertEqual(rc, 0, out)
-        self.assertIn("ターンの終わりに待ち受けが渡す", out)
+        self.assertIn("a0", out)
         self.assertEqual([w for w in self.ports.term.writes if w[0] in ("prompt", "run")], [])
         notice = next(r for r in deliver.records(self.inbox) if isinstance(r.get("to"), str))
         self.assertEqual((notice["to"], notice["kind"]), (to, wake.NOTE))
-        self.assertIn("頼みの足しです（受付 a0 への、desk から", notice["text"])
-        self.assertIn("取り下げる。止めて", notice["text"])
+        for given in ("a0", "desk", notice["id"], "取り下げる。止めて、どこまで済んだかを返す"):   # 受付番号・足した者・足しの受付・本文
+            self.assertIn(given, notice["text"])
         (rec,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "note" and not isinstance(r.get("to"), str)]
         self.assertEqual((rec["ask"], rec["status"], rec["to"]["wake"]), ("a0", "noticed", to))
+        self.assertIn(rec["detail"], out)   # 台帳に残した渡り方と同じ物を出す
 
     def test_note_without_a_waiter_goes_through_the_ledger_and_stops_once_delivered(self):
         # 待ち受けの跡の無い部署にも窓には打たず、台帳の知らせで置く（受付 9dccfe・d70b23）。初めての待ち受けが取りこぼさないように、
@@ -3666,15 +3789,19 @@ class WakeFlow(unittest.TestCase):
         self.assertEqual(self.prompts(), [])
         notice = next(r for r in deliver.records(self.inbox) if isinstance(r.get("to"), str))
         self.assertEqual(notice["kind"], wake.NOTE)
-        self.assertIn("頼みの足しです（受付 a0 への", notice["text"])
+        for given in ("a0", "desk", notice["id"], "B も見る"):   # 受付番号・足した者・足しの受付・本文
+            self.assertIn(given, notice["text"])
         self.assertTrue(os.path.exists(wake.pos_path(self.inbox, self.dept_place())))
         provision.mark(self.place, self.src, {"delivered": "a0"}, self.g)
+        before = deliver.records(self.inbox)
         rc, out = self.main(self.src, "--note", "a0", "--text", "B も見る")
         self.assertEqual(rc, 2, out)
-        self.assertIn("もう納品した", out)
+        self.assertIn("a0", out)
+        self.assertIn("--ask", out)   # 足すなら新しい頼みとして打つコマンド
         rc, out = self.main(self.src, "--note", "nope", "--text", "x")
         self.assertEqual(rc, 2, out)
-        self.assertIn("どの部署も受けておらず", out)
+        self.assertIn("nope", out)
+        self.assertEqual(deliver.records(self.inbox), before)   # 止めた足しは置かない
         rc, out = self.main(self.src, "--note", "a0")
         self.assertEqual(rc, 2, out)
 
@@ -3692,7 +3819,7 @@ class WakeFlow(unittest.TestCase):
         provision.mark(self.place, self.src, {"ask": "a0", "boss": "desk"}, self.g)
         rc, out = self.main(self.src, "--note", "a0", "--text", "B も見る", "--dry-run")
         self.assertEqual(rc, 2, out)
-        self.assertIn("足しのゲート（会社の形の note_check", out)
+        self.assertIn("note_check", out)   # 止めたゲートの設定の名前
         self.assertIn("見出しの印が無い。", out)
         rc, out = self.main(self.src, "--note", "a0", "--text", "B も見る")
         self.assertEqual(rc, 2, out)
@@ -3743,14 +3870,15 @@ class WakeFlow(unittest.TestCase):
         self.ports.term.screen = self.EMPTY_BOX
         rc, out = self.main(self.src, "--say", "feat/7", "--text", "x", "--dry-run")
         self.assertEqual(rc, 0, out)
-        self.assertIn("台帳に知らせを足す（窓には打たない。その会話の次のターンの終わりに張られる待ち受けが渡す）", out)
+        self.assertIn("feat/7", out)   # 知らせる先
         rc, out = self.main(self.src, "--say", "#7", "--text", "レビューの指摘を見てから push する")
         self.assertEqual((rc, self.prompts()), (0, []), out)
         here = self.g.git_dir(place)
         to = wake.place_address(here)
         (notice,) = [r for r in deliver.records(self.inbox) if isinstance(r.get("to"), str)]
         self.assertEqual((notice["to"], notice["kind"]), (to, wake.SAY))
-        self.assertIn("知らせです（desk から。受付", notice["text"])
+        for given in ("desk", notice["id"], "レビューの指摘を見てから push する"):   # 知らせた者・受付番号・本文
+            self.assertIn(given, notice["text"])
         (rec,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "say" and isinstance(r.get("to"), dict)]
         self.assertEqual((rec["status"], rec["to"]["branch"], rec["to"]["wake"]), ("noticed", "feat/7", to))
         self.assertEqual(self.g.worktree_attrs(place).get(wake.OPENED), "say")
@@ -3769,11 +3897,15 @@ class WakeFlow(unittest.TestCase):
         self.ports.term.agent = lambda p: {"agent": "claude", "agent_status": "working"}
         rc, out = self.main(self.src, "--say", "調べ", "--text", "main が進んだ")
         self.assertEqual((rc, self.prompts(), self.stopped), (0, [], []), out)
-        self.assertIn("ターンの終わりの待ち受けが渡す", out)
+        (busy,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "say" and isinstance(r.get("to"), dict)]
+        self.assertIn(busy["detail"], out)   # 台帳に残した渡り方と同じ物を出す
         self.ports.term.agent = lambda p: {"agent": "claude", "agent_status": "idle"}
         rc, out = self.main(self.src, "--say", "調べ", "--text", "もう 1 つ")
         self.assertEqual((rc, self.prompts(), self.stopped), (0, [], ["s-dept"]), out)
-        self.assertIn("attach で起動し直した", out)
+        idle = [r for r in deliver.records(self.inbox) if r.get("kind") == "say" and isinstance(r.get("to"), dict)][-1]
+        self.assertIn("s-dept", idle["detail"])   # 起動し直した会話
+        self.assertNotEqual(idle["detail"], busy["detail"])
+        self.assertIn(idle["detail"], out)
         notices = [r for r in deliver.records(self.inbox) if isinstance(r.get("to"), str)]
         self.assertEqual([(n["to"], n["kind"]) for n in notices], [(to, wake.SAY)] * 2)
 
@@ -3782,67 +3914,79 @@ class WakeFlow(unittest.TestCase):
         self.ports.pr_info = lambda repo, n: {"number": n, "title": "t", "head": "main", "url": None, "state": "OPEN", "fork": True}
         rc, out = self.main(self.src, "--say", "#9", "--text", "x")
         self.assertEqual(rc, 2, out)
-        self.assertIn("fork の PR", out)
+        self.assertIn("#9", out)
+        self.assertEqual([r for r in deliver.records(self.inbox) if r.get("kind") == "say"], [])
         self.assertEqual(self.prompts(), [])
 
     def test_say_refuses_slash_text_and_unknown_targets_and_never_types_over_a_draft(self):
-        rc, out = self.main(self.src, "--say", "調べ", "--text", "/model opus")
-        self.assertEqual(rc, 2, out)
-        self.assertIn("コマンド（/model・/exit など）を送らない", out)
-        rc, out = self.main(self.src, "--say", "調べ", "--text", "/Users/x/a.md を読んだ", "--dry-run")   # パスで始まる文は通す
-        self.assertNotIn("コマンド（/model", out)
-        rc, out = self.main(self.src, "--say", "nope", "--text", "x")
-        self.assertEqual(rc, 2, out)
-        self.assertIn("ブランチの名前の作業場も無い", out)
-        rc, out = self.main(self.src, "--say", "調べ")
-        self.assertEqual(rc, 2, out)
+        with self.subTest('コマンドの字・知らない宛先・本文の無い知らせは断る'):
+            rc, out = self.main(self.src, "--say", "調べ", "--text", "/model opus")
+            self.assertEqual(rc, 2, out)
+            self.assertEqual([r for r in deliver.records(self.inbox) if r.get("kind") == "say"], [])
+            rc, out = self.main(self.src, "--say", "調べ", "--text", "/Users/x/a.md を読んだ", "--dry-run")   # パスで始まる文は通す
+            self.assertEqual(rc, 0, out)
+            rc, out = self.main(self.src, "--say", "nope", "--text", "x")
+            self.assertEqual(rc, 2, out)
+            self.assertIn("nope", out)
+            self.assertIn("--tree", out)   # 宛先を見るコマンド
+            rc, out = self.main(self.src, "--say", "調べ")
+            self.assertEqual(rc, 2, out)
         # 待ち受けの居ない部署の窓に打ちかけの字が在っても、窓には打たず、起動し直しもしない（知らせは台帳に置く）
-        self.restartable()
-        self.ports.term.screen = f"{'─' * 20}\n❯ 打ちかけ\n{'─' * 20}\n"
-        rc, out = self.main(self.src, "--say", "調べ", "--text", "x")
-        self.assertEqual((rc, self.prompts(), self.stopped), (0, [], []), out)
-        self.assertIn("打ちかけの字が在るので起動し直さなかった", out)
-        self.assertIn("次のターンの終わりに待ち受けが渡す", out)
-        self.assertEqual(len([r for r in deliver.records(self.inbox) if r.get("kind") == "say" and isinstance(r.get("to"), dict)]), 1)
-        self.assertEqual(self.ports.term.read(self.window, 40), f"{'─' * 20}\n❯ 打ちかけ\n{'─' * 20}\n")
+        with self.subTest('待ち受けの居ない部署の窓に打ちかけの字が在っても、窓には打たず、起動し直しもしな'):
+            self.restartable()
+            self.ports.term.screen = f"{'─' * 20}\n❯ 打ちかけ\n{'─' * 20}\n"
+            rc, out = self.main(self.src, "--say", "調べ", "--text", "x")
+            self.assertEqual((rc, self.prompts(), self.stopped), (0, [], []), out)
+            (rec,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "say" and isinstance(r.get("to"), dict)]
+            self.assertIn(rec["detail"], out)   # 起動し直さなかった訳と渡る道を台帳に残し、同じ物を出す
+            self.assertIn(self.window, rec["detail"])
+            self.assertIn("--nudge 調べ", rec["detail"])   # 字を送るか消してから打ち直すコマンド
+            self.assertEqual(self.ports.term.read(self.window, 40), f"{'─' * 20}\n❯ 打ちかけ\n{'─' * 20}\n")
 
     def test_forward_closes_the_held_ask_without_waking_its_asker_and_links_it_in_the_ledger(self):
         # 窓口が受けた頼みを部署へ回しただけなら、頼み元（社長室）の会話を再開させない。回した先は台帳にだけ結ぶ
-        rc, out = self.main(self.src, "--ask", "調べ", "--text", "回す頼み", "--forward")
-        self.assertEqual(rc, 2, out)
-        self.assertIn("回す元の頼みが無い", out)
-        provision.mark(self.src, self.src, {"role": "窓口", "name": "desk", "ask": "a0", "boss": "社長室", "boss-inbox": self.inbox}, self.g)
-        to = self.listen("調べ", self.dept_place())
-        rc, out = self.main(self.src, "--ask", "調べ", "--text", "回す頼み", "--forward", "--dry-run")
-        self.assertEqual(rc, 0, out)
-        self.assertIn("回した元: 受付 a0 を閉じ", out)
-        self.assertEqual((deliver.records(self.inbox), self.g.worktree_attrs(self.src).get("delivered")), ([], None))
-        rc, out = self.main(self.src, "--ask", "調べ", "--text", "回す頼み", "--forward")
-        self.assertEqual(rc, 0, out)
-        self.assertIn("回した元の受付 a0 を閉じた", out)
-        (item,) = wake.queued(self.inbox, self.dept_place())
-        self.assertEqual(item["marks"]["boss"], "desk")   # 回した先の納品は、回した側（窓口）に返る
-        (row,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "ask"]
-        self.assertEqual((row["id"], row["cause"]), (item["id"], "a0"))   # 頼みの行の親は、打った場所が受けていた頼み
-        (link,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "forwarded"]   # 同じ受付箱には 1 行だけ
-        self.assertEqual((link["id"], link["child"], link["to"]["name"], link["boss"]["name"]), ("a0", item["id"], "調べ", "社長室"))
-        self.assertEqual([r["to"] for r in deliver.records(self.inbox) if isinstance(r.get("to"), str)], [to])   # 社長室への知らせは無い
-        self.assertEqual(self.g.worktree_attrs(self.src)["delivered"], "a0")
+        with self.subTest('回すと元の頼みを閉じ、頼み元を起こさずに台帳で結ぶ'):
+            rc, out = self.main(self.src, "--ask", "調べ", "--text", "回す頼み", "--forward")
+            self.assertEqual(rc, 2, out)
+            self.assertIn("--forward", out)
+            self.assertEqual(wake.queued(self.inbox, self.dept_place()), [])
+            provision.mark(self.src, self.src, {"role": "窓口", "name": "desk", "ask": "a0", "boss": "社長室", "boss-inbox": self.inbox}, self.g)
+            to = self.listen("調べ", self.dept_place())
+            rc, out = self.main(self.src, "--ask", "調べ", "--text", "回す頼み", "--forward", "--dry-run")
+            self.assertEqual(rc, 0, out)
+            self.assertIn("a0", out)
+            self.assertIn("社長室", out)   # 起動しない頼み元
+            self.assertEqual((deliver.records(self.inbox), self.g.worktree_attrs(self.src).get("delivered")), ([], None))
+            rc, out = self.main(self.src, "--ask", "調べ", "--text", "回す頼み", "--forward")
+            self.assertEqual(rc, 0, out)
+            self.assertIn("a0", out)
+            (item,) = wake.queued(self.inbox, self.dept_place())
+            self.assertEqual(item["marks"]["boss"], "desk")   # 回した先の納品は、回した側（窓口）に返る
+            (row,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "ask"]
+            self.assertEqual((row["id"], row["cause"]), (item["id"], "a0"))   # 頼みの行の親は、打った場所が受けていた頼み
+            (link,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "forwarded"]   # 同じ受付箱には 1 行だけ
+            self.assertEqual((link["id"], link["child"], link["to"]["name"], link["boss"]["name"]), ("a0", item["id"], "調べ", "社長室"))
+            self.assertEqual([r["to"] for r in deliver.records(self.inbox) if isinstance(r.get("to"), str)], [to])   # 社長室への知らせは無い
+            self.assertEqual(self.g.worktree_attrs(self.src)["delivered"], "a0")
         # 閉じた後は、もう回す元の頼みが無い
-        rc, out = self.main(self.src, "--ask", "調べ", "--text", "別の頼み", "--forward")
-        self.assertEqual(rc, 2, out)
-        self.assertEqual(len(wake.queued(self.inbox, self.dept_place())), 1)
+        with self.subTest('閉じた後は、もう回す元の頼みが無い'):
+            rc, out = self.main(self.src, "--ask", "調べ", "--text", "別の頼み", "--forward")
+            self.assertEqual(rc, 2, out)
+            self.assertEqual(len(wake.queued(self.inbox, self.dept_place())), 1)
         # 回して閉じた頼みへの足しは、回した先の頼みに届く（「もう納品した」で止めない）
-        rc, out = self.main(self.src, "--note", "a0", "--text", "範囲に B も足す")
-        self.assertEqual(rc, 0, out)
-        self.assertIn(f"回した先の受付 {item['id']} に足す", out)
-        (rec,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "note"]
-        self.assertEqual(rec["ask"], item["id"])
+        with self.subTest('回して閉じた頼みへの足しは、回した先の頼みに届く'):
+            rc, out = self.main(self.src, "--note", "a0", "--text", "範囲に B も足す")
+            self.assertEqual(rc, 0, out)
+            self.assertIn(item["id"], out)
+            (rec,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "note"]
+            self.assertEqual(rec["ask"], item["id"])
         # 回した先も閉じたら止める
-        deliver.log(self.inbox, {"id": "f", "kind": "deliver", "ask": item["id"], "at": 9e9, "status": "sent"})
-        rc, out = self.main(self.src, "--note", "a0", "--text", "まだ足す")
-        self.assertEqual(rc, 2, out)
-        self.assertIn("回した先もみな閉じた", out)
+        with self.subTest('回した先も閉じたら止める'):
+            deliver.log(self.inbox, {"id": "f", "kind": "deliver", "ask": item["id"], "at": 9e9, "status": "sent"})
+            rc, out = self.main(self.src, "--note", "a0", "--text", "まだ足す")
+            self.assertEqual(rc, 2, out)
+            self.assertIn("a0", out)
+            self.assertEqual(len([r for r in deliver.records(self.inbox) if r.get("kind") == "note"]), 1)   # 止めた足しは置かない
 
     def test_forward_from_another_place_closes_the_callers_own_ask(self):
         # 部署の会話が本社へ移って --forward を打っても、本社の部署（段取り）の頼みでなく、打った会話の部署の頼みを閉じ、回した先の
@@ -3855,7 +3999,7 @@ class WakeFlow(unittest.TestCase):
         self.ports.env = {"CLAUDE_CODE_SESSION_ID": "s-boss"}   # 会話の一覧に見えない会話
         rc, out = self.main(self.src, "--ask", "調べ", "--text", "回す頼み", "--forward")
         self.assertEqual(rc, 0, out)
-        self.assertIn("回した元の受付 q1 を閉じた", out)
+        self.assertIn("q1", out)
         self.assertEqual(self.g.worktree_attrs(other)["delivered"], "q1")
         self.assertNotIn("delivered", self.g.worktree_attrs(self.src))
         (item,) = wake.queued(self.inbox, self.dept_place())
@@ -3882,42 +4026,47 @@ class WakeFlow(unittest.TestCase):
         self.assertEqual([r for r in deliver.records(self.inbox) if r.get("kind") == "forwarded"], [])
         rc, out = self.main(self.src, "--take", "x", "--ask", "調べ", "--forward")
         self.assertEqual(rc, 2, out)
-        self.assertIn("--forward は --ask と一緒にだけ使う", out)
+        for given in ("--forward", "--ask"):
+            self.assertIn(given, out)
 
     def test_deliver_for_returns_a_forwarded_ask_to_its_asker_without_closing_the_one_held_now(self):
         # 窓口が回して閉じた頼み（a0）の結果を返すとき、その後に受けた頼み（a1）は閉じない
-        provision.mark(self.src, self.src, {"role": "窓口", "name": "desk", "ask": "a0", "boss": "社長室", "boss-session": "s-boss",
-                                            "boss-inbox": self.inbox}, self.g)
-        self.listen("調べ", self.dept_place())
-        self.assertEqual(self.main(self.src, "--ask", "調べ", "--text", "回す頼み", "--forward")[0], 0)
-        (child,) = [r["child"] for r in deliver.records(self.inbox) if r.get("kind") == "forwarded"]
-        summary = pathlib.Path(self.root).parent / "summary.md"
-        summary.write_text(test_deliver.GOOD, encoding="utf-8")
-        rc, out = self.main(self.src, "--deliver", str(summary))   # 回して閉じた頼みへ --for を付けずに返そうとした
-        self.assertEqual(rc, 2, out)
-        self.assertIn("--forward で回して閉じた。回した先の結果か問いを返すなら --for a0 を付けて打ち直す", out)
+        with self.subTest('回して閉じた頼みへ --for を付けずに返すと止める'):
+            provision.mark(self.src, self.src, {"role": "窓口", "name": "desk", "ask": "a0", "boss": "社長室", "boss-session": "s-boss",
+                                                "boss-inbox": self.inbox}, self.g)
+            self.listen("調べ", self.dept_place())
+            self.assertEqual(self.main(self.src, "--ask", "調べ", "--text", "回す頼み", "--forward")[0], 0)
+            (child,) = [r["child"] for r in deliver.records(self.inbox) if r.get("kind") == "forwarded"]
+            summary = pathlib.Path(self.root).parent / "summary.md"
+            summary.write_text(test_deliver.GOOD, encoding="utf-8")
+            rc, out = self.main(self.src, "--deliver", str(summary))   # 回して閉じた頼みへ --for を付けずに返そうとした
+            self.assertEqual(rc, 2, out)
+            self.assertIn("--for a0", out)   # 打ち直すコマンド
         # ほかの部署が回した行の受付は渡せない（その部署の頼み元へ届く。受付 b54685）
-        deliver.log(self.inbox, {"id": "f0", "kind": "forwarded", "child": "f1", "from": {"name": "窓口2", "place": "/elsewhere"},
-                                 "boss": {"name": "社長室", "session": "s-boss", "inbox": self.inbox}})
-        rc, out = self.main(self.src, "--deliver", str(summary), "--for", "f1")
-        self.assertEqual(rc, 2, out)
-        self.assertIn("受付 f1 を回したのはこの部署（desk）でなく 窓口2", out)
-        provision.mark(self.src, self.src, {"ask": "a1", "boss": "持ち主", "boss-session": "s-owner"}, self.g)
-        boss = self.listen("社長室", "/elsewhere/.git")
-        rc, out = self.main(self.src, "--deliver", str(summary), "--for", "nope")
-        self.assertEqual(rc, 2, out)
-        self.assertIn("受付 nope を回した行が台帳に無い", out)
-        for key in ("a0", child):   # 回した元の受付でも、回した先の受付でも引ける
-            rc, out = self.main(self.src, "--deliver", str(summary), "--for", key)
-            self.assertEqual(rc, 0, out)
-            notice, rec = deliver.records(self.inbox)[-2:]
-            self.assertEqual((notice["to"], notice["id"]), (boss, "a0"))
-            self.assertEqual((rec["ask"], rec["for"], rec["to"]["name"], rec["to"]["session"]), ("a0", key, "社長室", "s-boss"))
-        attrs = self.g.worktree_attrs(self.src)
-        self.assertEqual((attrs["ask"], attrs["delivered"], attrs["boss"]), ("a1", "a0", "持ち主"))   # 今の頼みはそのまま
-        rc, out = self.main(self.src, "--for", "a0")
-        self.assertEqual(rc, 2, out)
-        self.assertIn("--for は --deliver と一緒にだけ使う", out)
+        with self.subTest('ほかの部署が回した行の受付は渡せず、回した元か先の受付で返す'):
+            deliver.log(self.inbox, {"id": "f0", "kind": "forwarded", "child": "f1", "from": {"name": "窓口2", "place": "/elsewhere"},
+                                     "boss": {"name": "社長室", "session": "s-boss", "inbox": self.inbox}})
+            rc, out = self.main(self.src, "--deliver", str(summary), "--for", "f1")
+            self.assertEqual(rc, 2, out)
+            for given in ("f1", "desk", "窓口2"):   # 渡した受付・この部署・回した部署
+                self.assertIn(given, out)
+            provision.mark(self.src, self.src, {"ask": "a1", "boss": "持ち主", "boss-session": "s-owner"}, self.g)
+            boss = self.listen("社長室", "/elsewhere/.git")
+            rc, out = self.main(self.src, "--deliver", str(summary), "--for", "nope")
+            self.assertEqual(rc, 2, out)
+            self.assertIn("nope", out)
+            for key in ("a0", child):   # 回した元の受付でも、回した先の受付でも引ける
+                rc, out = self.main(self.src, "--deliver", str(summary), "--for", key)
+                self.assertEqual(rc, 0, out)
+                notice, rec = deliver.records(self.inbox)[-2:]
+                self.assertEqual((notice["to"], notice["id"]), (boss, "a0"))
+                self.assertEqual((rec["ask"], rec["for"], rec["to"]["name"], rec["to"]["session"]), ("a0", key, "社長室", "s-boss"))
+            attrs = self.g.worktree_attrs(self.src)
+            self.assertEqual((attrs["ask"], attrs["delivered"], attrs["boss"]), ("a1", "a0", "持ち主"))   # 今の頼みはそのまま
+            rc, out = self.main(self.src, "--for", "a0")
+            self.assertEqual(rc, 2, out)
+            for given in ("--for", "--deliver"):
+                self.assertIn(given, out)
 
     def test_deliver_for_returns_a_child_asks_answer_to_the_asker_of_the_ask_it_came_from(self):
         # 受けた頼み（a0）を閉じずに cause 付きの --ask で回した子の頼みの答えを、a0 の頼み元へ返す。a0 を納品し、次の頼み（a1）を
@@ -3925,40 +4074,45 @@ class WakeFlow(unittest.TestCase):
         provision.mark(self.src, self.src, {"role": "窓口", "name": "desk", "ask": "a0", "boss": "社長室", "boss-session": "s-boss",
                                             "boss-inbox": self.inbox}, self.g)
         # a0 はこの部署が受けた頼み（台帳の頼みの行の宛先がこの部署）。受けた頼みでも、子を回した元の受付は --for に渡せる
-        deliver.log(self.inbox, {"id": "a0", "kind": "ask", "cause": None, "from": {"name": "社長室", "place": "/elsewhere"},
-                                 "to": {"name": "desk"}})
-        self.listen("調べ", self.dept_place())
-        self.assertEqual(self.main(self.src, "--ask", "調べ", "--text", "残った疑問を調べて")[0], 0)
-        (row,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "ask" and r.get("cause") == "a0"]
-        self.assertEqual((row["cause_boss"]["name"], row["cause_boss"]["session"]), ("社長室", "s-boss"))
-        boss = self.listen("社長室", "/elsewhere/.git")
-        summary = pathlib.Path(self.root).parent / "summary.md"
-        summary.write_text(test_deliver.GOOD, encoding="utf-8")
-        rc, out = self.main(self.src, "--deliver", str(summary), "--for", row["id"])   # a0 をまだ納品していない
-        self.assertEqual(rc, 2, out)
-        self.assertIn("まだ納品されていない", out)
-        self.assertEqual(self.main(self.src, "--deliver", str(summary))[0], 0)   # a0 の納品
-        provision.mark(self.src, self.src, {"ask": "a1", "boss": "持ち主", "boss-session": "s-owner"}, self.g)
-        for key in ("a0", row["id"]):   # 元の受付でも、子の受付でも引ける
-            rc, out = self.main(self.src, "--deliver", str(summary), "--for", key)
-            self.assertEqual(rc, 0, out)
-            notice, rec = deliver.records(self.inbox)[-2:]
-            self.assertEqual((notice["to"], notice["id"]), (boss, "a0"))
-            self.assertEqual((rec["ask"], rec["for"], rec["to"]["name"], rec["to"]["session"]), ("a0", key, "社長室", "s-boss"))
-        attrs = self.g.worktree_attrs(self.src)
-        self.assertEqual((attrs["ask"], attrs["boss"]), ("a1", "持ち主"))   # 今の頼みはそのまま
+        with self.subTest('a0 を納品した後に、子の答えを a0 の頼み元へ返す'):
+            deliver.log(self.inbox, {"id": "a0", "kind": "ask", "cause": None, "from": {"name": "社長室", "place": "/elsewhere"},
+                                     "to": {"name": "desk"}})
+            self.listen("調べ", self.dept_place())
+            self.assertEqual(self.main(self.src, "--ask", "調べ", "--text", "残った疑問を調べて")[0], 0)
+            (row,) = [r for r in deliver.records(self.inbox) if r.get("kind") == "ask" and r.get("cause") == "a0"]
+            self.assertEqual((row["cause_boss"]["name"], row["cause_boss"]["session"]), ("社長室", "s-boss"))
+            boss = self.listen("社長室", "/elsewhere/.git")
+            summary = pathlib.Path(self.root).parent / "summary.md"
+            summary.write_text(test_deliver.GOOD, encoding="utf-8")
+            rc, out = self.main(self.src, "--deliver", str(summary), "--for", row["id"])   # a0 をまだ納品していない
+            self.assertEqual(rc, 2, out)
+            for given in (row["id"], "a0"):   # 渡した受付と、まだ納品していない元の受付
+                self.assertIn(given, out)
+            self.assertEqual(self.main(self.src, "--deliver", str(summary))[0], 0)   # a0 の納品
+            provision.mark(self.src, self.src, {"ask": "a1", "boss": "持ち主", "boss-session": "s-owner"}, self.g)
+            for key in ("a0", row["id"]):   # 元の受付でも、子の受付でも引ける
+                rc, out = self.main(self.src, "--deliver", str(summary), "--for", key)
+                self.assertEqual(rc, 0, out)
+                notice, rec = deliver.records(self.inbox)[-2:]
+                self.assertEqual((notice["to"], notice["id"]), (boss, "a0"))
+                self.assertEqual((rec["ask"], rec["for"], rec["to"]["name"], rec["to"]["session"]), ("a0", key, "社長室", "s-boss"))
+            attrs = self.g.worktree_attrs(self.src)
+            self.assertEqual((attrs["ask"], attrs["boss"]), ("a1", "持ち主"))   # 今の頼みはそのまま
         # ほかの部署（点検）が回してこの部署が受けた子の頼み c9 は、子の受付でも元の受付でも渡せない（点検の頼み元へ届く。受付 b54685
         # の 481db2 は、届け先が割り振り自身に決まった）。誰が閉じたかも出す
-        deliver.log(self.inbox, {"id": "c9", "kind": "ask", "cause": "a9", "from": {"name": "点検", "place": "/elsewhere"},
-                                 "to": {"name": "desk"}, "cause_boss": {"name": "desk", "session": "s-desk", "inbox": self.inbox}})
-        deliver.log(self.inbox, {"id": "d9", "kind": "deliver", "ask": "c9", "status": "sent", "from": {"name": "desk：c9"}})
-        for key in ("c9", "a9"):
-            rc, out = self.main(self.src, "--deliver", str(summary), "--for", key)
-            self.assertEqual(rc, 2, out)
-            self.assertIn(f"受付 {key} を回したのはこの部署（desk）でなく 点検", out)
-        self.assertNotIn("納品 d9", out)   # a9 には納品の行が無い
-        rc, out = self.main(self.src, "--deliver", str(summary), "--for", "c9")
-        self.assertIn("- 受付 c9 は、desk：c9 が納品 d9 で返して閉じている", out)
+        with self.subTest('ほかの部署が回してこの部署が受けた子の頼みは渡せない'):
+            deliver.log(self.inbox, {"id": "c9", "kind": "ask", "cause": "a9", "from": {"name": "点検", "place": "/elsewhere"},
+                                     "to": {"name": "desk"}, "cause_boss": {"name": "desk", "session": "s-desk", "inbox": self.inbox}})
+            deliver.log(self.inbox, {"id": "d9", "kind": "deliver", "ask": "c9", "status": "sent", "from": {"name": "desk：c9"}})
+            for key in ("c9", "a9"):
+                rc, out = self.main(self.src, "--deliver", str(summary), "--for", key)
+                self.assertEqual(rc, 2, out)
+                for given in (key, "desk", "点検"):   # 渡した受付・この部署・回した部署
+                    self.assertIn(given, out)
+            self.assertNotIn("desk：c9", out)   # a9 には納品の行が無い（閉じた部署を出さない）
+            rc, out = self.main(self.src, "--deliver", str(summary), "--for", "c9")
+            for given in ("c9", "desk：c9", "d9"):   # 閉じた受付・閉じた部署・その納品
+                self.assertIn(given, out)
 
     def test_a_child_ask_without_cause_boss_finds_the_asker_in_the_original_asks_row(self):
         # cause_boss を書く前の版の行: 元の頼みの行（頼み元の受付箱の台帳に在る）の from と本文の置き場から頼み元を組み立てる
@@ -3980,7 +4134,9 @@ class WakeFlow(unittest.TestCase):
         self.shape('[[roles]]\nname = "配布"\nmachine = true\n')
         rc, out = self.main(self.src, "--ask", "配布", "--text", "配って", "--task", "x", "--branch", "b/x")
         self.assertEqual(rc, 2, out)
-        self.assertIn("機械だけの役", out)
+        self.assertIn("配布", out)
+        self.assertIn("--call", out)   # 代わりに打つコマンド
+        self.assertEqual([r for r in deliver.records(self.inbox) if r.get("kind") == "ask"], [])
 
     def test_deliver_to_a_listening_asker_needs_no_window(self):
         summary = self.ask_then_summary(test_deliver.GOOD)

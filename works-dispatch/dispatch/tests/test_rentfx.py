@@ -6,12 +6,12 @@ import os
 import pathlib
 import time
 import unittest
+from unittest import mock
 
-from . import DISPATCH
 import rentfx
 import rentx
 import wake_hook
-from nodes import role
+from nodes import role, wake
 from ports import chat
 from . import scratch
 
@@ -61,9 +61,29 @@ class Marks(unittest.TestCase):
         self.assertIn(rentfx.ASK_MARK, wake_hook.CONSULT_TEXT)
         self.assertTrue(role.KEEPALIVE_TEXT.lstrip("（(").startswith(rentfx.PING_HEAD))
         self.assertNotIn(rentfx.ASK_MARK, role.KEEPALIVE_TEXT)
-        source = (DISPATCH / "wake_hook.py").read_text(encoding="utf-8")
-        for mark in (rentfx.JUDGED_MARK, rentfx.CUT_MARK):
-            self.assertIn(mark, source)
+
+    def test_the_text_after_a_compact_tells_the_reader_who_compacted(self):
+        # compact の後の会話の始まりに待ち受けが送る続きの文（wake_hook.compact_turn）を、rentfx が記録から読んで、費用の判断で打った
+        # compact（judged）か区切りで打った compact（cut）かを分けられること。ソースの字でなく、送る文そのものを読ませる
+        for judged, how in ((True, "judged"), (False, "cut")):
+            for focus in (None, "次は試験"):
+                with self.subTest(judged=judged, focus=focus):
+                    text = self.after_compact(judged, focus)
+                    events = [{"type": "compact", "at": T0, "trigger": "manual"},
+                              {"type": "said", "by": "hook", "text": text, "at": T0 + 1}]
+                    [(kind, row)] = rentfx.turns(events)
+                    self.assertEqual((kind, row["how"]), ("compact", how))
+                    if focus:
+                        self.assertIn(focus, text)   # 焦点も続きの文に届く
+
+    def after_compact(self, judged, focus):
+        attrs = {wake.COMPACT: "s1", **({wake.COMPACT_FOCUS: focus} if focus else {})}
+        got = {"session": "s1", "inbox": scratch(), "place": scratch(), "cwd": scratch(), "root": scratch()}
+        with mock.patch.object(wake_hook.wake, "compact_state", return_value={"forced": False, "judged": judged}), \
+                mock.patch.object(wake_hook.wake, "compact_forget"), mock.patch.object(wake_hook.provision, "mark"):
+            kind, text = wake_hook.compact_turn(got, {"hook_event_name": chat.START, "source": "compact"}, attrs)
+        self.assertEqual(kind, "wake")
+        return text
 
 
 class TalkEvents(unittest.TestCase):
