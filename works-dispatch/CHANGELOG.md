@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.178.3] - 2026-11-28
+
 ### Fixed
 
 - `--clean` が、Claude Code のサブエージェントの作業場（`<元の clone>/.claude/worktrees/agent-*`）のうち、ブランチを rebase か cherry-pick でメインブランチに入れた物を「メインブランチに無い commit が有る」として残し続けていた。前は作業場の先頭の commit がメインブランチの祖先かだけを見ていて、rebase・cherry-pick で commit の id が替わると、中身が全部入っていても祖先にならない（頼み 3c8c5d。2026-11-28 に my_notes で 18 個中 10 個がこれで残り、手で消して約 4 GB 空いた）。今は、祖先でなくても、メインブランチに無い側の commit が全部、同じ差分の commit としてメインブランチに入っていれば（`git cherry` の行が全部 `-`）消せるにする。merge の commit を含むブランチは残す（`git cherry` は merge の commit を見ないので、merge で足した中身がメインブランチに無くても全部入ったと出る）。鍵・会話の作業フォルダ・未コミットの変更・stash・60 分の内に触った、の条件は今までどおり。
