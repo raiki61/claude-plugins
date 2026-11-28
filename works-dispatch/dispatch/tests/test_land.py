@@ -1181,7 +1181,7 @@ class DryRun(LandCase):
         self.assertIn("release/a", out)
         self.assertEqual(self.snapshot(w), before, "空打ちなのに ref か worktree を書いた")
         self.assertEqual(git("-C", w.dept, "status", "--porcelain"), "", "空打ちなのに部署の場所のファイルを書き換えた")
-        self.assertEqual((ports.gh.asked, ports.gh.prs, self.told, self.told), (0, [], [], []))
+        self.assertEqual((ports.gh.asked, ports.gh.prs, self.told, ports.term.prompts), (0, [], [], []))
 
     def test_main_moved_reports_the_rebase_without_fetching_or_asking(self):
         w = FakeWorld(self.tmp, CI_FILES)
