@@ -22,6 +22,8 @@ tests/py/MIGRATION.md -coldread
 # いないので、初見読みは書き換えのたびに同じ詰まりを出す。部品の読み方を書いた README.md は読ませる
 attention/prompts/*.md -coldread
 attention/prompts/README.md coldread
+# dig-world の指示文の部品も同じ（生成の先は attention/workflows/dig-world.js、正しさは tests/dig-world-dry.mjs の texts が受け持つ）
+attention/prompts/world/*.md -coldread
 # works-factory の perspectives/ から 1 字も変えずに写した観点（sha256 を attention/perspectives/COPIED_FROM が控え、空回しの試験
 # tests/my-turn-dig-dry.mjs の prompts が一致を見る）。写しは直さないので、初見読みの詰まりはここで直せない。直すなら元の works-factory で直して写し直す。
 # 写しはバイトのまま持つ（-text）。Windows の core.autocrlf=true の clone で改行が CRLF になると、控えの sha256 と合わずに prompts が赤になる（CI run 44469842272）
