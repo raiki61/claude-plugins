@@ -74,7 +74,7 @@
   "rule3": 32
  },
  "graphloops/tests/py/test_engine_parts.py": {
-  "rule3": 13
+  "rule3": 9
  },
  "graphloops/tests/py/test_engine_run.py": {
   "rule3": 11

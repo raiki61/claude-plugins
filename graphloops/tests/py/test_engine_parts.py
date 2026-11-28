@@ -9,7 +9,7 @@ import time
 import pytest
 
 from engine.advance import ITEM_INLINE, slim_item
-from engine.commands import parse_output
+from engine.commands import EMPTY_REPLY, UNREADABLE_ADVICE, UNREADABLE_HEAD, parse_output
 from engine.render import ABSENT, FILE_CAP, ReadsViolation, Renderer, cap_bytes
 from engine.util import AnswerReject, Reject, del_path, dump, get_path, set_path, sum_counts
 
@@ -236,7 +236,7 @@ def broken_fence_message():
 
 
 def test_rejection_says_how_many_distinct_candidates_were_tried():
-    assert "候補 2 本すべてで失敗" in broken_fence_message()
+    assert broken_fence_message().splitlines()[0] == UNREADABLE_HEAD.format(n=2)
 
 
 def test_rejection_lists_what_each_cut_did():
@@ -267,7 +267,7 @@ def test_same_candidate_is_not_tried_twice():
 def test_rejection_carries_advice():
     """助言行が付く（役に直し方を教える側——診断だけ出して直し方を出さない形にしない）"""
     msg = broken_fence_message()
-    assert "よくある原因:" in msg and "囲い（```）が閉じていない" in msg
+    assert msg.splitlines()[-1] == UNREADABLE_ADVICE
 
 
 def short_broken_line():
@@ -304,7 +304,7 @@ def test_empty_reply_says_only_that_it_is_empty(empty):
     with pytest.raises(Reject) as e:
         parse_output(empty)
     msg = str(e.value)
-    assert "空か空白だけ" in msg and "候補" not in msg
+    assert msg == EMPTY_REPLY and "候補" not in msg
 
 
 @pytest.mark.parametrize("empty", ["", "   ", "\n\n"], ids=["empty", "spaces", "newlines"])

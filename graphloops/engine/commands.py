@@ -1370,6 +1370,13 @@ def _launch_marked(d, mark, picked):
 
 
 # ---------------------------------------------------------------- done
+# parse_output が役に返す拒否の固定句。字を変えると役が読む文が変わる。tests/py/test_engine_parts.py が字を写さずにここから引く
+EMPTY_REPLY = "返答が中身を持たない（空か空白だけ）——役が何も返していないか、渡した返答が空。JSON だけを返せ"
+UNREADABLE_HEAD = "返答が JSON として読めない（候補 {n} 本すべてで失敗）"   # n は試して落ちた相異なる候補の数
+UNREADABLE_ADVICE = ('よくある原因: 文字列値の中のエスケープしていない " ／ 末尾のカンマ ／ '
+                     "JSON の前後に付いた地の文 ／ 囲い（```）が閉じていない")
+
+
 def parse_output(text):
     """役の返答を JSON に読む。**素の JSON を先に試す**——先に囲いを探すと、本文の中の ``` を囲いと誤認して
     中身を切り出し、正しい返答を『読めない』で拒む（実測 2026-09-12: 指摘文に ```json を書いた返答が落ちた。
@@ -1381,8 +1388,7 @@ def parse_output(text):
     # --stdin / out_path の 3 入口で text を作り、ここへは text しか渡らない。1 つに決め打つと、
     # 既定の導線（--output）で誤った場所を直しに行かせる。
     if not text:
-        raise AnswerReject("返答が中身を持たない（空か空白だけ）——役が何も返していないか、"
-                     "渡した返答が空。JSON だけを返せ")
+        raise AnswerReject(EMPTY_REPLY)
     errs, tried = [], set()
     for label, cand in _json_candidates(text):
         # 同じ中身の候補を 2 回 loads しない。囲いの外に波括弧が無い通常形では
@@ -1403,11 +1409,10 @@ def parse_output(text):
     # 全文の pos 0 に勝ち、JSON を 1 文字も返していない返答に『直すのは中身』と出た。素の JSON の
     # 後ろに文が付いた形＝Extra data では、旧文言『JSON だけを返せ』の方が正しかった）。
     # 候補ごとに何が起きたかを並べ、直す先は読む人に選ばせる。
-    lines = [f"返答が JSON として読めない（候補 {len(errs)} 本すべてで失敗）"]
+    lines = [UNREADABLE_HEAD.format(n=len(errs))]
     for label, cand, e in errs:
         lines.append(f"  - {label}: {e.msg} / {_around(cand, e.pos)}")
-    lines.append('よくある原因: 文字列値の中のエスケープしていない " ／ 末尾のカンマ ／ '
-                 "JSON の前後に付いた地の文 ／ 囲い（```）が閉じていない")
+    lines.append(UNREADABLE_ADVICE)
     raise AnswerReject("\n".join(lines))
 
 
