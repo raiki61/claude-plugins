@@ -2581,6 +2581,22 @@ try:
 except Exception as exc:
     sys.exit("deny の JSON が読めない(%s): bytes=%d %s" % (exc, len(RAW), ascii(RAW[:200])))
 
+
+def gate():
+    """ゲートを module として読む（知らせの字を写さずに定数から引く mode が使う。パスは cr_reason が argv[2] に渡す）"""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("g", sys.argv[2])
+    g = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(g)
+    return g
+
+
+def carry_only_note(r):
+    # 埋める値のうち続けて止まった数と字数の書き直しは回ごとに変わるので、】より後ろ（CARRY_ONLY_ROUND だけを埋める所）を引く
+    g = gate()
+    return g.STREAK_CARRY_NOTE.split("】", 1)[1] % g.CARRY_ONLY_ROUND in r
+
+
 CHECKS = {
     # 連続の案内は書き手（session）ごと。他のセッションの deny は自分の 1 回目に出さない
     "no-streak": ("SID_ISOLATED", lambda r: "回続けて" not in r),
@@ -2588,6 +2604,8 @@ CHECKS = {
     "streak-head": ("HEAD_OK", lambda r: r.startswith("【") and "回続けて止まった" in r[:40]),
     # 逃げ道（COLDREAD_SKIP=1）を付けて出せと案内しない（持ち主の判断 2026-10-16）
     "no-skip-advice": ("NO_SKIP_ADVICE", lambda r: "COLDREAD_SKIP=1 を付け" not in r and "でその本文を出す" not in r),
+    # 続けて止まった知らせは、この先は前の回から残った物だけで止まると言う（STREAK_CARRY_NOTE を引く）
+    "streak-carry": ("CARRY_ONLY_OK", carry_only_note),
 }
 mode = sys.argv[1]
 if mode not in CHECKS:
@@ -2603,7 +2621,7 @@ cr_reason() (
     sid=$1 mode=$2
     shift 2
     [ "$sid" = "-" ] || export COLDREAD_TEST_SESSION="$sid"
-    "$@" | "$PY_BIN" "$WORK/cr-reason.py" "$mode"
+    "$@" | "$PY_BIN" "$WORK/cr-reason.py" "$mode" "$ROOT/gates/hooks/coldread-gate.py"
 )
 
 # 記録（skip.log・misses.log）を読む検査の口。新しい置き場でケースを 1 回だけ回し、その回が書いた記録を出す。
@@ -5251,7 +5269,8 @@ $CR_PAD
 EOF"
 expect_output 0 " → " "3 回続けて止まったとき、本文が増えていれば 1 回ごとの字数の数列を知らせに載せる" \
     env COLDREAD_TEST_SESSION=grow1 "$CR_CASE" "$CR_GROW_CFG" "$CR_STUB_CARRY2" "$CR_POST_LONGER"
-expect_output 0 "前の回から残った詰まり・なぞりだけが投稿を止め、止める数は直すたびに減る" "続けて止まった知らせは、この先は前の回から残った物だけで止まると言う" \
+expect_output 0 "CARRY_ONLY_OK" "続けて止まった知らせは、この先は前の回から残った物だけで止まると言う" \
+    cr_reason grow1 streak-carry \
     env COLDREAD_TEST_SESSION=grow1 "$CR_CASE" "$CR_GROW_CFG" "$CR_STUB_CARRY2" "$CR_POST_LONGER"
 expect_output 0 "HEAD_OK" "続けて止まった知らせは deny 理由の先頭に在る" \
     cr_reason grow1 streak-head \
@@ -5381,7 +5400,7 @@ ok = stuck == ["ZZWORD が分からない"] and moved == ["(止めない。文�
 print("DOC_ASK_OK" if ok else "BAD %s" % ascii((stuck, moved)))' "$ROOT/gates/hooks/coldread-gate.py"
 # GitHub の画面で読む読み手には、#番号の参照と「本文」の指す先を解けた物として読ませる(型 C)
 expect_output 0 "NUMBER_NOTE_OK" "スレッドと新しい PR・issue の読み手に #番号の読み方を、スレッドの読み手に「本文」の指す先を渡す" \
-    "$PY_BIN" -c "$CR_LOAD"$'\n''ok = g._NUMBER_NOTE in g.SCREEN_PROMPT and g._NUMBER_NOTE in g.NEW_PROMPT and g._NUMBER_NOTE not in g.COLD_PROMPT and "「本文」とだけ書いて指す" in g.SCREEN_PROMPT
+    "$PY_BIN" -c "$CR_LOAD"$'\n''ok = g._NUMBER_NOTE in g.SCREEN_PROMPT and g._NUMBER_NOTE in g.NEW_PROMPT and g._NUMBER_NOTE not in g.COLD_PROMPT and g._BODY_REF_NOTE in g.SCREEN_PROMPT
 print("NUMBER_NOTE_OK" if ok else "BAD")' "$ROOT/gates/hooks/coldread-gate.py"
 # 持ち主の許しの口は外した。入力欄で撃たれるフックは無い
 expect_output 0 "NO_PASS_MODE" "持ち主の許しの口はゲートにもフックの設定にも無い" \
