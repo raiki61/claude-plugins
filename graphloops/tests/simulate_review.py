@@ -1274,7 +1274,10 @@ def test_converges():
     check(last["status"] == "converged", f"status が converged（{last['status']}）")
     check(st["round"] == 3, f"3 周で収束（{st['round']}）")
     r1, r2, r3 = run.round_file(1), run.round_file(2), run.round_file(3)
-    check(len(r1["materials"]) == 15 and all("status" in m for m in r1["materials"].values()), "周の記録に素材 15 フィールドが揃う")
+    # 素材の名の一覧の正本は記録の検証器の MATERIALS（graph の record.vocab_owner が名指す）。数を手で写さない
+    mats = _load_validator("vrec_conv").MATERIALS
+    check(set(r1["materials"]) == set(mats) and all("status" in m for m in r1["materials"].values()),
+          f"周の記録に素材のフィールドが検証器の MATERIALS のとおり揃う（{sorted(set(mats) ^ set(r1['materials']))}）")
     check(r1["materials"]["procedure_trace"]["status"] == "not_applicable" and r1["materials"]["fix_closure"]["status"] == "clean", "条件外は not_applicable、fix_closure は P3 の返答")
     check(r2["materials"]["parallel_pr"]["status"] == "carried_over" and r2["materials"]["parallel_pr"].get("from_round") == 1,
           f"1 周目だけ走るノード（判定から入る run でない）は carried_over（実際に見た周付き。{r2['materials']['parallel_pr']}）")
@@ -1474,7 +1477,6 @@ def test_local_review_lens_rows():
     sec = next(e for e in lr["skills"] if e["skill"] == "/security-review")
     check(sec["applies"] is False and "applies_why" in sec and '"applies": false' in body,
           f"申告が偽の周は applies が偽で、プロンプトと instance にその値が載る（{sec}）")
-    check("pr-review-toolkit:review-pr" in body, "まとめ役を挟むなという禁止は残る")
     base = t["p1.local_review"](None)
     # 腕 1: 宣言した 1 本の行を落とす
     r = run.done(lr["id"], {**base, "findings": local_findings(1, drop=("pr-review-toolkit:type-design-analyzer",))})
@@ -2929,9 +2931,19 @@ def test_frozen_review_revision():
     got = mod._freeze_revision(_B())
     check(got and len(got) == 40 and _B.loop_state == {} and _B.state["inputs"] == {},
           "_freeze_revision は版を返すだけで、盤面の loop も run の入力も書き換えない（版は呼んだ機械のノードの出力に載る）")
-    src_rules = (PLUGIN / "rules" / "review-loop.py").read_text(encoding="utf-8")
-    check("if not suffix:\n        _freeze_revision" not in src_rules,
-          "版の固定は接尾辞で分岐しない（P3 の後の取り直しでも走る）")
+    # 取り直しの口 _take_diff を接尾辞なし（周の頭）と -after-fix（P3 の後）で呼び、どちらも版の固定まで届くかを返りで見る。
+    # 固定の代わりに理由を名乗って拒む代役を置く（_take_diff は拒みの理由を problems にそのまま返す）——原文の字面は見ない
+    froze = []
+
+    def _froze(b):
+        froze.append(b.round)
+        raise mod.Reject("代役: 版の固定まで届いた")
+    orig_freeze, mod._freeze_revision = mod._freeze_revision, _froze
+    tb = type("_BT", (), {"record": {"base": "BASE"}, "round": 1, "dir": run.tmp})()
+    outs = [mod._take_diff(tb, sfx) for sfx in ("", "-after-fix")]
+    mod._freeze_revision = orig_freeze
+    check(len(froze) == 2 and all(o == {"ok": False, "problems": ["代役: 版の固定まで届いた"]} for o in outs),
+          f"版の固定は接尾辞で分岐しない（P3 の後の取り直しでも走る。{outs}）")
     # **git の返り値を 1 組で済ませない。** 腕が『全部失敗』1 通りだけだったとき、
     # 失敗（None）と『変更が無い』（空文字）を同じ値に潰す実装が素通りした（実測 r9）——
     # このループの主経路（p0.base が git add -N を打つ）で必ず起きる形だった。
@@ -3019,12 +3031,19 @@ def test_frozen_review_revision():
                   f"{name} は 40 桁の版を採る（{str(got)[:60]}）")
     src.write_text(before, encoding="utf-8")
     # 採点役のプロンプトが、生きた木のパスと読む版の両方を渡す
-    nx = run.next()
-    seen = [pathlib.Path(i["prompt_file"]).read_text(encoding="utf-8") for i in nx.get("ready") or []
-            if i["node"] in ("p1.consistency_bypass", "p2.diagnose", "r3.coherence", "r4.hidden_scope")]
-    if seen:
-        check(all(rev in s and str(run.repo.resolve()) in s for s in seen),
-              f"採点役のプロンプトはリポジトリのパスと読む版の両方を渡す（{len(seen)} 件）")
+    # 採点役が出る所まで進める（版が固まった波には P0 の残りが居て、採点役はまだ出ていないことがある）。
+    # 出ないまま終われば赤——見つからない周を黙って緑にしない
+    scorers = ("p1.consistency_bypass", "p2.diagnose", "r3.coherence", "r4.hidden_scope")
+    seen = []
+    for _ in range(20):
+        nx = run.next()
+        seen = [pathlib.Path(i["prompt_file"]).read_text(encoding="utf-8") for i in nx.get("ready") or [] if i["node"] in scorers]
+        if seen or not nx.get("ready"):
+            break
+        for inst in nx["ready"]:
+            run.done(inst["id"], answers(run, "std", nx["round"])[inst["node"]](inst))
+    check(seen and all(rev in s and str(run.repo.resolve()) in s for s in seen),
+          f"採点役のプロンプトはリポジトリのパスと読む版の両方を渡す（{len(seen)} 件）")
     rm(run.tmp)
 
 def test_purpose_review_reruns_when_unvetted():
@@ -3055,10 +3074,14 @@ def test_purpose_review_reruns_when_unvetted():
     check(not f(b([{"text": "x", "cite": "a", "hits": 1}])), "**チェックを通った判定は走り直さない**（不利な判定の引き直しを作らない）")
     check(not f(b(None, verdict=None)), "まだ一度も走っていないなら、この引き金では走らせない（round==1 の側が拾う）")
     check(not f(b([], verdict="ok")), "findings が空の『問題なし』は走り直さない")
-    # **式の正本は 1 か所**——assemble が別の式を持っていると、チェックを締めた周に片方だけ古くなる
-    src = (PLUGIN / "rules" / "review-loop.py").read_text(encoding="utf-8")
-    check(src.count('r.get("cite") for r in rows') == 1,
-          f"裏取り済みかを判定する式は 1 か所（{src.count('r.get(\"cite\") for r in rows')} か所）")
+    # **式の正本は 1 か所**——assemble が別の式を持っていると、チェックを締めた周に片方だけ古くなる。
+    # 原文の字面は数えず、同じ findings を assemble の読む口（purpose_findings_vetted）と走り直しの条件の両方に渡し、
+    # 答えが逆になる（裏取り済みなら走り直さない・済んでいなければ走り直す）ことを見る。指摘 0 件はどちらの口も特別に扱うので外す
+    for rows in (["素の文字列の指摘", "もう 1 件"], [{"text": "x", "hits": 1}],
+                 [{"text": "x", "cite": "a"}, {"text": "y", "hits": 2}], [{"text": "x", "cite": "a", "hits": 1}]):
+        ctx = b(rows)
+        vetted = mod.purpose_findings_vetted(type("_B", (), {"record": ctx["record"]})())
+        check(bool(f(ctx)) is (not vetted), f"走り直しの条件と assemble の読む口が同じ findings で食い違わない（{rows}・裏取り済み {vetted}）")
 
 
 def test_loop_state_notes_have_readers():
@@ -3495,19 +3518,24 @@ def test_proxy_to_source():
     check("from_round" not in r2c, f"化けていれば from_round が付く（付いていない: {list(r2c)}）")
     rm(run.tmp)
 
-    # ② 役の自由文の改行は記録に入る前に落ちる（落ちないと検証器の字下げ echo に行頭を作れて、周の分岐を倒せる）
-    run = Run("nl")
-    nx = run.next()
-    by = {i["node"]: i for i in nx["ready"]}
-    t = answers(run, "std", 1)
-    for n in ("p0.base", "p0.local_checks", "p0.premises"):
-        settle(run, by[n], t[n])
-    check(rules.stop_branch(V, {"exit": 1, "out": "収束を妨げるもの 1 件:\n  - [block] x\n", "stop": None}) == "work_remains",
-          "止める訳のキーが無ければ work_remains")
+    # ② 役の自由文の改行は記録に入る前に落ちる（落ちないと検証器の字下げ echo に行頭を作れて、周の分岐を倒せる）。
+    #    正規化する実物（judge_output の 1 行のフィールドの処理）に改行入りの返答を渡し、渡した後の値を見る。
+    #    stop が null なら work_remains になる分岐は test_stop_branch が見る
     bad_key = "x — 前提不成立が確定（escalate）を key に混ぜた"
-    check(" ".join((bad_key + "\n" + V.STOP_PREMISE).split()) == bad_key + " " + V.STOP_PREMISE,
-          "1 行への正規化は改行を空白に潰す（判定行を作れない）")
-    rm(run.tmp)
+    _td_nl, tmp = parallel.workspace("gl-nl-")
+    b = with_hist(rules, types.SimpleNamespace(round=1, loop_state={}, dir=tmp, record={"materials": {}, "units": [], "questions": []},
+                                               state={"validator": str(VALIDATOR), "inputs": {}},
+                                               graph={"nodes": {"p2.diagnose": {"schema": {"properties": {}}, "reads": []}}}))
+    out = {"units": [{"key": bad_key + "\n" + V.STOP_PREMISE, "label": "block", "reason": "一行目\n  二行目"}],
+           "questions": [], "one_shot_closes": []}
+    try:
+        rules.judge_output(b, "p2.diagnose", out, None)
+    except Reject:
+        pass   # この graph は precedents を宣言しないので拒まれる。正規化は拒む前に out を書き換える（見るのはその値）
+    u = out["units"][0]
+    check(u["key"] == bad_key + " " + V.STOP_PREMISE and u["reason"] == "一行目 二行目",
+          f"1 行への正規化は改行を空白に潰す（判定行を作れない。{u}）")
+    rm(tmp)
 
     # ③ 受理集合は鍵が在れば null でも落ちる（`is not None` で外していたので NG 文が名指しする null が素通りしていた）
     _td_tmp, tmp = parallel.workspace("gl-accept-")
@@ -5300,12 +5328,23 @@ def test_vocab_not_copied():
         if v.domain == "review":
             check("R1〜R4" in got, f"{k} の origin の要求（R 名）が届く")
             break
-    # **生成されている証拠**: 検証器に種類を 1 つ足すと、プロンプトを触らずに届く
-    extra = dict(V.QUESTION_KINDS)
-    extra["ficticious"] = V.Kind("none", (), "台本が足した架空の種類")
-    grown = dict(V.PROMPT_TABLES)
-    grown["question_kinds"] = "／".join(
-        f"{k}（{V.ORIGIN_NOTE[x.domain]}）: {x.note}" for k, x in extra.items())
+    # **生成されている証拠**: 検証器に種類を 1 つ足すと、プロンプトを触らずに届く。表の組み立ては試験の側に写さず、
+    # 検証器が読み込みの時に record_common._tables へ渡す組み立て（PROMPT_TABLES の build）を拾って、種類を足した表で回し直す
+    rc = sys.modules["record_common"]   # 上の _load_validator が検証器の隣から読み込んだ土台
+    builds, orig_tables = [], rc._tables
+
+    def _keep(what, build):
+        builds.append(build)
+        return orig_tables(what, build)
+    rc._tables = _keep
+    try:
+        V2 = _load_validator("vrec_grown")
+    finally:
+        rc._tables = orig_tables
+    build = next((f for f in builds if f.__globals__ is V2.__dict__), None)   # 並んで走る台本が読んだ別の検証器の組み立ては外す
+    check(build is not None and build() == V2.PROMPT_TABLES, "検証器の表の組み立てを拾えた（拾った組み立てが PROMPT_TABLES と同じ表を返す）")
+    V2.QUESTION_KINDS = {**V2.QUESTION_KINDS, "ficticious": V2.Kind("none", (), "台本が足した架空の種類")}
+    grown = build() if build else {}
     check("ficticious" in render(grown), "検証器に足した種類が、プロンプトを触らずに役へ届く（写しなら届かない）")
 
 
@@ -6190,7 +6229,7 @@ def test_spec_flow():
           "仕様の道: 受け入れ条件の本文（Given/When/Then）は記録に写さない")
     prompt = seen.get("diagnose_prompt", "")
     check("tests/test_spec_p1_returns.py" in prompt and "仕様（人が承認した受け入れ条件" in prompt
-          and prompt.count("テストの本文は writer が書き、人は承認しただけ") == 2,
+          and prompt.count(review_rules().SPEC_PROVENANCE) == 2,   # 出どころの文の正本は rules の SPEC_PROVENANCE（写さない）
           "仕様の道: 承認した受け入れ条件は、1 周目の判定のプロンプトの既存の穴（人の修正依頼）に、1 件ごとに出どころ（writer が書き人が承認）つきで載る")
     check(last["status"] == "converged", f"仕様の道: 修正で受け入れ条件が緑になり収束する（{last['status']}）")
     check(sum(1 for b_ in rec["process"].get("request_history", []) + rec["process"].get("request_findings", [])

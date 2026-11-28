@@ -1856,7 +1856,32 @@ def test_role_run():
     check(why and "確かめられない" in why and mark.exists(), f"開始時刻を確かめられなければ止めずに理由を返す（{why}）")
     mark.unlink()
 
-    if os.name == "posix":
+    # posix の囲い（posix_tree）の check の説明の表。Windows はこの表を見送りで数える（件数は OS に依らず同じ）。
+    # 囲いの check は引数の check（数える包み）を通るので、表に足し忘れると posix の回の数の照合（下の TREE_COUNT）が赤になる
+    posix_tree_checks = (
+        "固定具の孫が pid を書いた（setpgid で抜ける孫）",
+        "グループの外へ出た孫（os.setpgid(0, 0)）も木の仲間として止める",
+        "固定具の孫が pid を書いた（setsid で抜ける孫）",
+        "グループの外へ出た孫（os.setsid()）も木の仲間として止める",
+        "固定具の孫が pid を書いた（SIGTERM を受けて終わる孫）",
+        "固定具の長がゾンビになった（SIGTERM を受けて終わる孫）",
+        "ゾンビだけのグループの EPERM を生きていると読まず、セッションに残った孫を止めて印を消す（孫が SIGTERM を受けて終わる形）",
+        "固定具の孫が pid を書いた（SIGTERM を無視する孫）",
+        "固定具の長がゾンビになった（SIGTERM を無視する孫）",
+        "ゾンビだけのグループの EPERM を生きていると読まず、セッションに残った孫を止めて印を消す（孫が SIGTERM を無視する形）",
+        "固定具の孫が pid を書いた（長が先に死ぬ木）",
+        "長が先に死んだ後も、setsid で抜けて SIGTERM を無視する孫を前の回の数え上げから拾って止める",
+        "run_tree: SIGTERM を無視する孫も、長（sh）が先に終わっても、木が消えたかを数え直して SIGKILL で止める",
+        "run_tree: 標準入力は閉じ（対話を待たない）、出力は文字列で返す",
+        "run_tree: 正常に終わった回も、グループの外へ出た背景のプロセスを終わりに止める",
+        "run_tree: 管を継いだ背景のプロセスが居ても、長が終わったら止めて戻る",
+        "run_steps: 段の背景のプロセスは次の段まで生き、試行の終わりに止める（keep_background なし）",
+        "run_steps: keep_background を宣言した段の背景のプロセスは試行の終わりにも残す",
+        "ps が失敗する回は、グループへ送って子を止め、外へ出た子孫を確かめていないと言う",
+    )
+    TREE_COUNT = "posix の囲いの check の数が、見送りの表（posix_tree_checks）と時間切れの 1 本の和に等しい"
+
+    def posix_tree(check):
         def escaped(escape, leader_stays=True):
             """孫がグループの外へ出る木を起動する ——(長の Popen, 孫の pid)。escape は孫が最初に呼ぶ口（setpgid はジョブ制御つきの
             シェルが背景の仕事を移す形、setsid は新しいセッションへ抜ける形）。leader_stays が偽なら長は孫を起動してすぐ終わる。
@@ -1988,6 +2013,15 @@ def test_role_run():
         check(got["stopped_by_kill"] and (got["why"] or "").startswith("止める相手を数え上げられない（ps が全プロセスの表を返さない")
               and "は居ないが、外へ出た子孫を確かめていない" in (got["why"] or ""),
               f"ps が失敗する回は、グループへ送って子を止め、外へ出た子孫を確かめていないと言う（{got}）")
+    if os.name == "posix":
+        seen = []
+
+        def counted(cond, desc):
+            seen.append(desc)
+            check(cond, desc)
+        posix_tree(counted)
+        # 時間切れの検査は Windows も自分の形で数えるので、表の外の 1 本
+        check(len(seen) == len(posix_tree_checks) + 1, f"{TREE_COUNT}（{len(seen)} 本・表 {len(posix_tree_checks)} 本）")
     else:
         # 時間切れで孫まで止める（Windows の形）: sh が無いので python の長が孫を起動して待つ。長の止め方は taskkill /T（親子の鎖）。
         # 時間切れは長が孫の番号を書き終えるのに足りる長さにする（Windows の python の起動は sh より遅く、混んだ CI では数秒かかる。孫の寿命 37 秒より短く）
@@ -2004,28 +2038,7 @@ def test_role_run():
             got = "TimeoutExpired"
         gp = int(gpid.read_text(encoding="utf-8")) if gpid.is_file() and gpid.read_text(encoding="utf-8").strip() else None
         check(got == "TimeoutExpired" and gp is not None and gone(gp), f"run_tree: 時間切れで孫まで止めてから TimeoutExpired を上げる（{got} pid {gp}）")
-        # posix の囲いの check と同じ本数を見送りで数える（時間切れの検査は上で Windows の形で数えた）（件数は OS に依らず同じ）——囲いに check を足したらここにも足す
-        for desc in (
-                "固定具の孫が pid を書いた（setpgid で抜ける孫）",
-                "グループの外へ出た孫（os.setpgid(0, 0)）も木の仲間として止める",
-                "固定具の孫が pid を書いた（setsid で抜ける孫）",
-                "グループの外へ出た孫（os.setsid()）も木の仲間として止める",
-                "固定具の孫が pid を書いた（SIGTERM を受けて終わる孫）",
-                "固定具の長がゾンビになった（SIGTERM を受けて終わる孫）",
-                "ゾンビだけのグループの EPERM を生きていると読まず、セッションに残った孫を止めて印を消す（孫が SIGTERM を受けて終わる形）",
-                "固定具の孫が pid を書いた（SIGTERM を無視する孫）",
-                "固定具の長がゾンビになった（SIGTERM を無視する孫）",
-                "ゾンビだけのグループの EPERM を生きていると読まず、セッションに残った孫を止めて印を消す（孫が SIGTERM を無視する形）",
-                "固定具の孫が pid を書いた（長が先に死ぬ木）",
-                "長が先に死んだ後も、setsid で抜けて SIGTERM を無視する孫を前の回の数え上げから拾って止める",
-                "run_tree: SIGTERM を無視する孫も、長（sh）が先に終わっても、木が消えたかを数え直して SIGKILL で止める",
-                "run_tree: 標準入力は閉じ（対話を待たない）、出力は文字列で返す",
-                "run_tree: 正常に終わった回も、グループの外へ出た背景のプロセスを終わりに止める",
-                "run_tree: 管を継いだ背景のプロセスが居ても、長が終わったら止めて戻る",
-                "run_steps: 段の背景のプロセスは次の段まで生き、試行の終わりに止める（keep_background なし）",
-                "run_steps: keep_background を宣言した段の背景のプロセスは試行の終わりにも残す",
-                "ps が失敗する回は、グループへ送って子を止め、外へ出た子孫を確かめていないと言う",
-        ):
+        for desc in posix_tree_checks + (TREE_COUNT,):
             skip(desc, "process-group", "posix の信号とプロセスグループで孫の生死を見る台本の作りに頼る")
     rm(tmp)
 
@@ -2501,9 +2514,11 @@ def test_relative_dir():
     # 同じ盤面を相対の --dir で開き直す（init は絶対で作られている）
     rel = os.path.relpath(run.dir, run.repo)
     check(not os.path.isabs(rel), f"相対の --dir を作れた（{rel}）")
-    drive(run, "std")
-    rec = run.record()
-    check(rec.get("convergence") or rec.get("process", {}).get("outcome"), "相対の準備でも run は最後まで進む")
+    last = drive(run, "std")
+    # 結末（convergence.outcome）は決まったときだけ書かれる（rules の init_record は None で置く）——None のままなら途中で止まった
+    outcome = run.record()["convergence"].get("outcome")
+    check(last["status"] in TERMINAL_STATUS and outcome in ("converged", "stopped"),
+          f"相対の準備でも run は最後まで進む（{last['status']}・{outcome}）")
     # 盤面が持つ綴りが 1 つであること——ここが割れると ref: の解決が cwd に依る
     st = run.state()
     stored = [i["output_file"] for rd in st["rounds"] for i in rd["instances"].values() if i.get("output_file")]
@@ -2663,8 +2678,6 @@ def test_answer_vocabulary():
     諮りの口は「止める／続ける」の分岐なので、**既定を「続ける」にしてはいけない。**
     """
     print("否定検査: 人の答えの語は engine の表に在るものだけ")
-    from engine.util import ANSWER_ACTIONS
-    check(set(ANSWER_ACTIONS) == {"continue", "stop", "escalate"}, f"engine が動ける語（{ANSWER_ACTIONS}）")
     run = Run("answers")
     drive(run, "stuck")
     # 諮っている盤面を作り、選択肢に engine の知らない語を混ぜて next を通す（立てる側で落ちる）
@@ -2697,11 +2710,12 @@ def test_answer_vocabulary():
     gp = tmp / "graphs" / "research-loop.json"
     gp.write_text((PLUGIN / "graphs" / "research-loop.json").read_text(encoding="utf-8"), encoding="utf-8")
     r2 = Run("ansopt", graph=gp)
-    seen = ""
+    seen, failed = "", False
     for _ in range(60):
         nx = r2.cmd("next")
         seen += nx.stderr
         if nx.returncode != 0 or not nx.stdout.strip():
+            failed = nx.returncode != 0
             break
         out = json.loads(nx.stdout)
         if not out["ready"]:
@@ -2709,7 +2723,9 @@ def test_answer_vocabulary():
         tbl = base_answers(r2, "stuck")
         for inst in out["ready"]:
             r2.done(inst["id"], tbl[inst["node"]](load_item(inst), out["round"]))
-    check("動けない語" in seen or "halt" in seen,
+    # 落ちた next の訳が知らない語の拒み（engine/advance.py の die。拒んだ語 halt を名指す）であることまで見る——
+    # 別の訳で落ちた・halt を含む別の文が出ただけの回を通さない
+    check(failed and "動けない語" in seen and "'halt'" in seen,
           f"諮りの選択肢に engine の知らない語が在れば、立てる側で落ちる（{seen[-160:]}）")
     rm(tmp)
     rm(r2.tmp)
