@@ -82,6 +82,9 @@ ran=0
 # 合格と同じ「ok」だけで出していたとき、ツールや OS の機能の無い CI は走らないまま緑になり、止める口が無かった
 SKIP_MARK=' # SKIP'
 SKIPS=()
+# unittest の一式の見送り（「OK (skipped=N)」）。見送りの行を出さない一式の分で、FAIL_ON_SKIP には数えず、本数を最後に出す（expect_output の緑の腕）
+UT_SKIP_RE='OK \(skipped=([0-9]+)\)'
+UT_SKIPS=()
 note_skips() {
     [[ "$1" == *"$SKIP_MARK"* ]] || return 0
     local l
@@ -218,6 +221,10 @@ expect_output() {
         fail=1
     elif [ "$want" = "$ANY_OUTPUT" ] || [[ "$got" == *"$want"* ]]; then
         echo "  ok   $desc"
+        # **unittest の見送りを数えて出す。** unittest の一式（parallel.py・unittest discover）は見送りを「OK (skipped=N)」の 1 行にしか
+        # 出さず、上の「OK」の部分一致で緑になる。見送りの行（SKIP_MARK）を出さないので FAIL_ON_SKIP にも載らず、CI のログにも残らなかった
+        # （2026-11-28 の点検の頼み 900eef。Windows で 114 本が黙って抜けていた）。ここでは失敗にせず、本数を一覧に足して最後に出す
+        if [[ "$got" =~ $UT_SKIP_RE ]]; then UT_SKIPS+=("${BASH_REMATCH[1]} 本: $desc"); fi
     else
         echo "  FAIL $desc — 出力に '$want' が無い$(got_where "$got")"
         [ -n "$got" ] && printf '%s\n' "$got"
@@ -265,6 +272,21 @@ if [ "$fail_probe" = "$want_probe" ]; then
 else
     echo "  FAIL 赤の行の形が違う（出力は下の行）"
     printf '%s\n' "$fail_probe"
+    fail=1
+fi
+
+# **unittest の見送りの数え手の腕。** 緑の「OK (skipped=N)」だけを本数で一覧に足し、見送りの無い「OK」と赤の回は足さない。
+# 一覧に足すだけで緑のままにする（FAIL_ON_SKIP に数えない）。副シェルで本体を汚さない。変異の腕の回（ONLY_SET）と範囲の回（SCOPE）でも見送らせない
+ut_probe=$( UT_SKIPS=(); fail=0; ran=0; ONLY_SET=; SCOPE=()
+            expect_output 0 "OK" "見送りの有る一式" printf 'Ran 5 tests\n\nOK (skipped=3)\n' >/dev/null
+            expect_output 0 "OK" "見送りの無い一式" printf 'Ran 5 tests\n\nOK\n' >/dev/null
+            expect_output 0 "OK" "赤の一式" sh -c 'echo "OK (skipped=2)"; exit 1' >/dev/null
+            printf '%s|' ${UT_SKIPS[@]+"${UT_SKIPS[@]}"}; printf 'fail=%s' "$fail" )
+ran=$((ran + 1))
+if [ "$ut_probe" = "3 本: 見送りの有る一式|fail=1" ]; then
+    echo "  ok   unittest の一式の「OK (skipped=N)」は緑の回だけ本数で一覧に足し、見送りの無い回と赤の回は足さない"
+else
+    echo "  FAIL unittest の見送りの数え方が違う: $ut_probe"
     fail=1
 fi
 
@@ -9726,6 +9748,10 @@ expect_output 0 "SKIPS_UNIQUE" "同じ見送りの行を二重に数えていな
 
 echo
 report_skips
+if [ "${#UT_SKIPS[@]}" -gt 0 ]; then
+    echo "unittest の一式が見送った試験（見送りの行を出さない一式の分。FAIL_ON_SKIP には数えない）:"
+    printf '  - %s\n' "${UT_SKIPS[@]}"
+fi
 if [ "$fail" = 0 ]; then
     echo "$ran 件すべて緑${SKIPS[0]+（見送り ${#SKIPS[@]} 件は上の一覧）}"
 else

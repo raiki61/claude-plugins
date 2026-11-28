@@ -151,7 +151,9 @@ def case_env_stop():
 
 
 def skip(name):
-    print("windows では偽の gh を走らせないので見送り")
+    # 見送りの行（「  ok   <検査> # SKIP <能力>:」）で出し、tests/run.sh の見送りの一覧と FAIL_ON_SKIP に載せる。
+    # 「見送り」の文だけで出していたときは、14 本のうち 13 本が Windows で黙って緑になっていた（2026-11-28 の点検の頼み 900eef）
+    print("  ok   my-turn-prep-case %s # SKIP posix-mode: 偽の gh・claude を #! の台本で PATH に置く形は POSIX の物" % name)
     return None
 
 
