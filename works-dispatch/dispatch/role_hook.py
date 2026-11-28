@@ -64,7 +64,7 @@ try:
     import filex  # noqa: E402
     import gitx  # noqa: E402
     import health  # noqa: E402
-    from nodes import deliver, provision, role, tree  # noqa: E402
+    from nodes import clean, deliver, provision, role, tree  # noqa: E402
 except (ImportError, SyntaxError) as _e:
     # どの会話の始まりにも走るので、PATH の python3 が古い（tomllib の無い 3.10 以前）ときも会話を邪魔しない
     print(f"works-dispatch: 役を足すフックを動かせない（Python 3.11 以上が要る: {_e}）", file=sys.stderr)
@@ -91,6 +91,13 @@ OTHER_REPO = ("ほかの会社のリポジトリ（会社の形を持つ別の�
               "持ち主に書いてと頼まれたときも直に書き換えず、`{run} --ask <会社の名前> --text <頼み>` でその会社に頼む"
               "（その会社の部署がブランチで書いて main に入れる。直に書くと、その会社の本社の作業場に commit していない変更が残り、"
               "その会社の会話の納品や main に入れるのが止まる）。")
+# 部署の会話に、Bash の TMPDIR を会話の置き場に向けた（put_tmpdir）ときに足す 1 文。TMPDIR を読まずに /tmp を直に書く手を減らす（頼み 96620c。
+# 2026-11-28 に / を埋めた /tmp の大きな物〔review-venv・sweepvenv-・takt- など〕は、ツールでなく会話が /tmp を直に書いて作った物だった）
+# terms: english-begin
+TMPDIR_NOTE = ("This conversation's Bash has TMPDIR set to {where}. It is removed with the conversation, and folding the department "
+               "does not copy it. Put scratch files, virtualenvs and build output under `$TMPDIR`. Do not write literal /tmp paths: "
+               "they outlive the conversation, and on 2026-11-28 they filled the disk.")
+# terms: english-end
 # 本社（代表の clone）の、窓口の席を持たない会話に HINT の後ろに足す 1 行。窓口の会話を開き直した会話が席を取り直さないと、待ち受けが
 # 張られず、納品が渡らない（前の版では予備の道の打ち込みで人の入力フィールドに入った。2026-10-30 の my_notes の司令塔。受付 d46e09、頼み 2827a8）
 DESK_HINT = ("works-dispatch: この本社の窓口の席は窓口「{name}」の会話（会話 {session}）が持つ。前の窓口の会話を継ぐなら "
@@ -98,12 +105,8 @@ DESK_HINT = ("works-dispatch: この本社の窓口の席は窓口「{name}」�
              "前の会話がまだ動いていると断られたら、出力のとおりにその会話を終えてから打ち直す）。")
 
 
-def put_env(attrs, env):
-    """部署の gh のアカウントの鍵を、会話の Bash の GH_TOKEN に入れる 1 行を CLAUDE_ENV_FILE に足す（もう在れば足さない）。"""
-    path = env.get(chat.ENV_FILE)
-    if not attrs.get("gh-user") or not path:
-        return
-    line = role.env_line(attrs["gh-user"])
+def _append_line(path, line):
+    """CLAUDE_ENV_FILE（path）に 1 行を足す（同じ行がもう在れば足さない）。"""
     try:
         with open(path, encoding="utf-8") as f:
             if line in f.read().splitlines():
@@ -112,6 +115,28 @@ def put_env(attrs, env):
         pass
     with open(path, "a", encoding="utf-8", newline="\n") as f:   # bash が走らせるので、Windows でも行末に \r を付けない
         f.write(line + "\n")
+
+
+def put_env(attrs, env):
+    """部署の gh のアカウントの鍵を、会話の Bash の GH_TOKEN に入れる 1 行を CLAUDE_ENV_FILE に足す（もう在れば足さない）。"""
+    path = env.get(chat.ENV_FILE)
+    if not attrs.get("gh-user") or not path:
+        return
+    _append_line(path, role.env_line(attrs["gh-user"]))
+
+
+def put_tmpdir(attrs, env, posix=os.name != "nt"):
+    """部署の会話の Bash の一時の置き場（TMPDIR）を、その会話の裏の処理の置き場の中（$CLAUDE_JOB_DIR/tmp/tmpdir）に向ける 1 行を
+    CLAUDE_ENV_FILE に足す（頼み 96620c。部署が /tmp に置いた venv や build の物が会話の後も残り、/ を埋めた）。その場所は会話を消すと
+    一緒に消え、部署を畳むときの一時の置き場の写し（clean.keep_tmp）も写さない。足した場所を返す。部署でない・裏の会話でない
+    （CLAUDE_JOB_DIR が無い）・Windows（Git Bash に Windows の形のパスを渡さない）ときは足さずに None。"""
+    path, job = env.get(chat.ENV_FILE), env.get(chat.JOB_ENV)
+    if not attrs.get("role") or not path or not job or not posix:
+        return None
+    where = os.path.join(job, "tmp", clean.TMPDIR_NAME)
+    os.makedirs(where, exist_ok=True)
+    _append_line(path, f"export TMPDIR={shlex.quote(where)}")
+    return where
 
 
 # 会話の id が変わるやり直し（SessionStart の source）
@@ -446,6 +471,11 @@ def main(stdin=sys.stdin, env=os.environ):
         put_env(attrs, env)
     except OSError as e:
         print(f"works-dispatch: GH_TOKEN を入れる行を書けなかった（{e}）", file=sys.stderr)
+    tmp = None
+    try:
+        tmp = put_tmpdir(attrs, env)
+    except OSError as e:
+        print(f"works-dispatch: TMPDIR を会話の置き場に向ける行を書けなかった（{e}）", file=sys.stderr)
     dept = bool(attrs.get("role")) and seated(payload, cwd, attrs)
     text = text_for(cwd, env, attrs) if dept else hint_for(cwd, env, attrs, payload.get("session_title"))
     if text:
@@ -459,6 +489,8 @@ def main(stdin=sys.stdin, env=os.environ):
         # --desk --dry-run を打って確かめなくてよい。c52730 の 6）
         text += (f"\n（窓口 {attrs.get('name') or '-'} の席はこの会話に引き継いだ: 属性の会話の id（company.session）をこの会話の id に"
                  "書き直した。--desk を打ち直さなくてよい）")
+    if text and dept and tmp:
+        text += "\n\n" + TMPDIR_NOTE.format(where=tmp)
     if text and dept:
         text = fit(text)
     if text:

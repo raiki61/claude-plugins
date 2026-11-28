@@ -189,6 +189,10 @@ class FakeGit:
     def rev(self, cwd, ref):
         return self._resolve(cwd, ref)
 
+    def tree_bytes(self, cwd, ref="HEAD"):
+        sha = self._resolve(cwd, ref)
+        return sum(len(str(v).encode("utf-8")) for v in self.commits[sha]["files"].values()) if sha else None
+
     def is_ancestor(self, cwd, a, b):
         a, b = self._resolve(cwd, a), self._resolve(cwd, b)
         return bool(a and b) and a in self._line(b)

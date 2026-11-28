@@ -229,6 +229,11 @@ class FakePorts(dispatch.Ports):
     def spawn(self, argv, cwd, log, env):
         self.spawned.append((argv, cwd, log, env))
 
+    free = 1 << 50   # ディスクの空き（部署を立てる前の確かめ。試験の機械の空きに左右されないよう、既定は十分に大きい）
+
+    def free_bytes(self, paths):
+        return self.free
+
     def preflight(self, cfg, task=False):
         self.preflight_task = task
         return list(self._problems), []

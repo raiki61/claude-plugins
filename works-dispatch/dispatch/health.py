@@ -11,8 +11,8 @@ docs/standards/breakage-detection.md）。
 - 足し続ける物（growth）: 台帳 log.jsonl と due.log の大きさが LEDGER_LIMIT を超えたら出す（台帳は頼みの木の元なので消さない）。
   log.jsonl の読めない行（filex.read_jsonl の bad。読む側は飛ばして標準エラーにだけ出す）も数えて出す。
   空になった順番待ちの置き場（queue/<場所の鍵>）は、EMPTY_DAYS 日より古い物を読むときに消す。
-- 一時の置き場の控え（kept_tmp）: --clean・--retire が会話の一時の置き場を消す前に写した控え（nodes/clean.py の keep_tmp。写すときに
-  古い物を消す）。消せずに clean.KEPT_DAYS 日より古い物が残れば出す。
+- 一時の置き場の控え（kept_tmp）: --clean・--retire が会話の一時の置き場を消す前に写した控え（nodes/clean.py の keep_tmp。写すときと
+  --clean --apply のたびに古い物を消す）。消せずに clean.KEPT_DAYS 日より古い物が残れば出す。
 - 盤面の写し（boards_archive）: 片付けが場所を消す前に写した graphloops の盤面（nodes/clean.py の keep_boards。写すときに古い物を
   消す）。works-dispatch が写した物の合計が clean.ARCHIVE_LIMIT を超えて残れば出す。
 - 周期（due）: 会社の形の受け持ちの周期（[skills.start] の every）の、前に起動した時と次の時。次の時を DUE_LATE_MIN 分過ぎても起動して
@@ -187,7 +187,7 @@ def kept_tmp(kept, now):
     old = [p for t, p in clean.kept_entries(kept) if now - t > clean.KEPT_DAYS * 86400]
     if not old:
         return []
-    return [f"一時の置き場の控え {kept} に {clean.KEPT_DAYS} 日より古い物が {len(old)} つ残っている（--clean か --retire が写すときに消す。"
+    return [f"一時の置き場の控え {kept} に {clean.KEPT_DAYS} 日より古い物が {len(old)} つ残っている（--clean --apply のたびと、--retire が写すときに消す。"
             "消せていない。中を見て要らなければ消す）"]
 
 

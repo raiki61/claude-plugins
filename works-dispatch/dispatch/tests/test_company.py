@@ -1014,7 +1014,7 @@ class Departments(unittest.TestCase):
     def test_place_is_kept_when_the_boards_cannot_be_copied(self):
         (pathlib.Path(self.g.git_dir(self.place)) / "graphloops").mkdir()
         real = clean._copy_over
-        clean._copy_over = lambda src, dest: (_ for _ in ()).throw(OSError("disk full"))
+        clean._copy_over = lambda src, dest, skip=None: (_ for _ in ()).throw(OSError("disk full"))
         self.addCleanup(setattr, clean, "_copy_over", real)
         rc, out = self.clean("--apply")
         self.assertEqual(rc, 1, out)

@@ -1696,9 +1696,19 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
     route = ("納品のコマンドで頼み元の窓へ" if tail else f"SendMessage で「{caller['name']}」へ"
              if caller["name"] and caller["account"] == account else f"--say で「{caller['name']}」へ"
              if caller["name"] else "区切りで画面に書いて止まる")
+    # ディスクの空きの確かめ（頼み 96620c）。作業場を新しく作る回だけ、作る前に止める。空きを読めないときは止めない
+    existed = bool(provision.find(found, a.branch))
+    room = {"free": None, "checkout": None} if existed else ports.room(repo.source)
+    need = provision.room_need(room["checkout"])
+    short = provision.room_short(room["free"], need)
+    if short and not a.dry_run:
+        print("\n".join(notes + [f"止めた: {short}"]))
+        return 1
     if a.dry_run:
         print("\n".join(notes + [
             f"部署 {a.task}  {a.branch}  {account}  {provision.would(row, found)}",
+            "- ディスクの空き: " + ("作業場を使い直すので確かめない" if existed else "読めない（止めない）" if room["free"] is None
+                                    else f"{provision.room_text(room['free'], need)}（{'足りないので、実際の回は止める' if short else '足りる'}）"),
             f"- 起動するフォルダ: {row['path'] or '<作る作業場の場所>'}",
             f"- ペインの名前: {pane_label}／会話の名前: {a.task}",
             "- 部署の属性: " + "、".join(f"company.{k}={v}" for k, v in attrs.items() if v),
@@ -1711,7 +1721,6 @@ def _task(cfg, repo, a, ports, extra_attrs=None, tail=None, refreshed=False):
             "- gh のアカウント: " + (f"{gh_user}（会話の Bash がコマンドごとに鍵を取り出し、GH_TOKEN に入れる）" if gh_user else "渡さない"),
             f"- 最初の文: {_brief_text(brief, caller, account, tail)}"]))
         return 0
-    existed = bool(provision.find(found, a.branch))
     try:
         base = None if existed else (a.base or ports.default_branch(repo))
     except (ghx.GhError, gitx.GitError) as e:
@@ -2503,10 +2512,58 @@ def _tool_places(repo, ports, apply):
     return len(bad), True
 
 
+AGENT_REASONS = {"locked": "鍵が掛かっている（サブエージェントが最初の走りの途中か、人が掛けた）", "session": "会話の作業フォルダがその中",
+                 "dirty": "未コミットの変更か git に足していないファイルが有る",
+                 "unpushed": "メインブランチに無い commit か、そのブランチの上の stash が有る",
+                 "recent": f"{clean.AGENT_IDLE_MIN} 分の内に触った（再開したサブエージェントが使っているかもしれない）"}
+
+
+def _agent_places(repo, ports, apply, cwds, notes):
+    """Claude Code のサブエージェントの作業場（<元の clone>/.claude/worktrees/agent-*）を並べ、apply なら変更もメインブランチに無い commit も
+    無い物を消す（clean.agent_rows・clean.remove_agent）。(消せなかった数, 消せる物が在ったか, 並べた数)。メインブランチを読めなければ、
+    並べずに注記を足す。"""
+    listed = [e for e in ports.git.listed_worktrees(repo.source) if clean.is_agent_place(e["path"], repo.source)]
+    if not listed:
+        return 0, False, 0
+    try:
+        main = f"origin/{ports.default_branch(repo)}"
+    except (ghx.GhError, gitx.GitError) as e:
+        notes.append(f"サブエージェントの作業場の片付けを飛ばした（既定のブランチを読めない: {e}）")
+        return 0, False, 0
+    rows = clean.agent_rows(listed, repo.source, cwds, ports.is_clean, ports.stashed,
+                            lambda path, sha: ports.is_ancestor(path, sha, main), lambda path: clean.touched_at(path, ports.git),
+                            ports.now())
+    for r in rows:
+        print(f"サブエージェントの作業場 {r['path']}  " + ("消せる" if r["removable"] else f"残す（{AGENT_REASONS[r['reason']]}）"))
+    removable = any(r["removable"] for r in rows)
+    if not apply:
+        return 0, removable, len(rows)
+    failed = 0
+    for r in (r for r in rows if r["removable"]):
+        got = clean.remove_agent(r, repo.source, ports.git)
+        print(f"サブエージェントの作業場 {r['path']} {'消した' if got['removed'] else '消せなかった'}"
+              + (f": {got['detail']}" if got["detail"] else ""))
+        failed += not got["removed"]
+    return failed, removable, len(rows)
+
+
 def _boards_note(path, ports):
     """消せる場所に graphloops の盤面が在れば、写す先を添える注記（無ければ空の字）。"""
     got = clean.boards_of(path, ports.git)
     return f"（graphloops の盤面は {got[1]} に写してから消す）" if got else ""
+
+
+def _prune_kept(repo, ports):
+    """--clean --apply のたびに、会話の一時の置き場の写し（共通の .git の company/kept-tmp）の古い物と上限を超えた分を消す（clean.prune_kept。
+    前の版は写すときにしか消さず、部署を畳まない間は期限を過ぎた写しが残った）。消した数を 1 行出す（0 なら出さない）。"""
+    common = ports.git.common_dir(repo.source)
+    if not common:
+        return
+    kept = os.path.join(common, *clean.KEPT_TMP)
+    gone = clean.prune_kept(kept, ports.now())
+    if gone:
+        print(f"一時の置き場の写し {kept} の古い物か上限（{clean.KEPT_LIMIT // (1024 * 1024)} MiB）を超えた分を {gone} つ消した"
+              f"（{clean.KEPT_DAYS} 日より古い物と、合計が上限を超えた分の古い物）")
 
 
 def _clean(cfg, repo, apply, ports):
@@ -2529,19 +2586,26 @@ def _clean(cfg, repo, apply, ports):
     if notes or swept:
         print("\n".join(notes + swept))
     failed, stale = _tool_places(repo, ports, apply)
+    cwds = {s.get("cwd") for items in listed.values() for s in items if s.get("cwd")}
+    agent_notes = []
+    agent_failed, agents, agent_count = _agent_places(repo, ports, apply, cwds, agent_notes)
+    if agent_notes:
+        print("\n".join(agent_notes))
+    failed += agent_failed
     if apply:
         for d in (d for d in depts if d["removable"]):
             got = clean.retire(d, repo.source, provision.label(repo, d["branch"]), ports.term, ports.git, chat, ports.account_env)
             print(f"部署 {d['name'] or '-'} {'消した' if got['removed'] else '消せなかった'}" + (f": {got['detail']}" if got["detail"] else ""))
             failed += not got["removed"]
-    found = [p for p in found if os.path.realpath(p.get("path") or "") not in dept_paths and not tools.is_place(p.get("path"))]
-    removable = stale or any(d["removable"] for d in depts)
-    cwds = {s.get("cwd") for items in listed.values() for s in items if s.get("cwd")}
+        _prune_kept(repo, ports)
+    found = [p for p in found if os.path.realpath(p.get("path") or "") not in dept_paths and not tools.is_place(p.get("path"))
+             and not clean.is_agent_place(p.get("path"), repo.source)]
+    removable = stale or agents or any(d["removable"] for d in depts)
     # 設定の [[repos]] に無い会社: PR の作業場は見ない（PR の状態を GitHub に問うのは、PR を開く回に使うリポジトリだけ）
     known = any(os.path.realpath(r.source) == os.path.realpath(repo.source) for r in cfg.repos)
     rows = _candidates(repo, ports, found, cwds, _changed(repo)) if known else []
     if not rows:
-        if not depts:
+        if not depts and not agent_count:
             print(f"元の clone {repo.source} の worktree は無い" if known else
                   f"元の clone {repo.source} に部署は無い（設定の [[repos]] に無いので、PR の作業場は見ない）")
         if not apply and removable:

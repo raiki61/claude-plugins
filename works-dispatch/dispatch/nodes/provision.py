@@ -191,6 +191,34 @@ def prepare_task(row, repo, default_branch, h=term, g=gitx):
     return _read_back(out, made, seen, branch, notes, g)
 
 
+# 部署を立てる前のディスクの空きの確かめ（頼み 96620c。2026-11-28 に部署の作業場と一時の置き場で / が埋まった）。
+# 要る空き = 残す空き（ROOM_RESERVE）+ 新しく作る worktree に書き出す量（元の clone の HEAD の木の大きさ。読めなければ ROOM_FALLBACK）。
+# 残す空きは、立てた後に部署が少しずつ足す依存・build・一時の置き場の分と、OS とほかの会話が書く分で、1 つの部署の作業場の測った
+# 大きさ（依存とサブエージェントの作業場を含めて 2.5 GB 前後）の 2 つ分。作業場を新しく作らない回（立っている部署の場所を開き直す
+# --task の打ち直し・--move）は確かめない（書き足す量が無く、止めると --move が止めた前の会話を戻す手間だけが増える）
+GIB = 1024 ** 3
+ROOM_RESERVE = 5 * GIB
+ROOM_FALLBACK = int(2.5 * GIB)
+
+
+def room_need(checkout):
+    """作業場を新しく作って部署を 1 つ立てるのに要る空き（バイト）。checkout は新しく作る worktree の見積もり（読めなければ None）。"""
+    return ROOM_RESERVE + (ROOM_FALLBACK if checkout is None else checkout)
+
+
+def room_text(free, need):
+    """空きと要る空きを人に見せる 1 行の中身（GB は 10 億でなく 2 の 30 乗のバイト）。"""
+    return f"空き {free / GIB:.1f} GB・要る空き {need / GIB:.1f} GB"
+
+
+def room_short(free, need):
+    """空きが足りなければ止める訳の 1 文。足りる・空きを読めない（free が None）なら None（読めないことでは止めない）。"""
+    if free is None or free >= need:
+        return None
+    return (f"ディスクの空きが足りない（{room_text(free, need)}）。--clean --apply で畳める部署とサブエージェントの作業場を片付けるか、"
+            "要らない一時の置き場を消してから頼み直す")
+
+
 def reopen(source, path, name, h=term):
     """閉じた部署の作業場（ペインを閉じると作業場も閉じる）を herdr に開き直し、(新しいペイン, 作業場) を返す。書く口（herdr の
     作業場）。開けなければ HerdrError。"""

@@ -153,6 +153,89 @@ def release(source, path, h=term):
     return out
 
 
+# サブエージェントの作業場: Claude Code が isolation: worktree のサブエージェントに切る worktree（<元の clone>/.claude/worktrees/agent-<字>）。
+# Claude Code はサブエージェントが変更か commit を残すと作業場を残し、cleanupPeriodDays（既定 30 日）たつまで消さない
+# （https://code.claude.com/docs/en/worktrees ）。2026-11-28 に my_notes に 12 個・guided-resolver に 15 個、計 11.7 GB 溜まり、VM の / が
+# 満杯になった（頼み 96620c）。--clean は前の版では PR の無い場所（no_pr）として残し続けた
+AGENT_DIR = (".claude", "worktrees")
+AGENT_PREFIX = "agent-"
+# 最後に触ってからこの分数たつまでは消さない。Claude Code はサブエージェントの最初の走りの間は作業場に鍵（git worktree lock）を掛けるが、
+# 続きから再開したサブエージェントには掛けない（同じ文書の "Worktree locks and manual removal"）。消すのは変更も commit も無い物だけなので
+# 失う物は無いが、再開した直後のサブエージェントの作業場を消してコマンドを落とさない
+AGENT_IDLE_MIN = 60
+
+
+def is_agent_place(path, source):
+    """path が元の clone source の下の、Claude Code のサブエージェントの作業場（.claude/worktrees/agent-*）か。"""
+    return (os.path.basename(path or "").startswith(AGENT_PREFIX)
+            and _same(os.path.dirname(path or ""), os.path.join(source or "", *AGENT_DIR)))
+
+
+def agent_rows(entries, source, open_cwds, is_clean, stashed, in_main, touched, now):
+    """サブエージェントの作業場ごとに、消してよいか。entries は gitx.listed_worktrees。in_main(場所, commit) はその commit がメインブランチ
+    （origin の既定のブランチの手元の控え）に入っているか。touched(場所) は場所と git の置き場（HEAD・index・HEAD の reflog）の更新の時刻の
+    いちばん新しい物（読めなければ None）。
+    返す 1 行は {path, branch, head, removable, reason}。reason は locked（鍵が掛かっている。Claude Code が最初の走りの間に掛ける・人が
+    掛けた）・session（会話の作業フォルダがその中）・dirty（未コミットの変更か git に足していないファイル）・unpushed（メインブランチに
+    無い commit か、そのブランチの上の stash）・recent（AGENT_IDLE_MIN 分の内に触った）。消してよい物は、どれにも当たらない物だけ。
+    場所のフォルダがもう無い物は並べない（git worktree prune の受け持ち）。"""
+    rows = []
+    for e in sorted(entries, key=lambda e: e.get("path") or ""):
+        path, branch, head = e.get("path"), e.get("branch"), e.get("head")
+        if not is_agent_place(path, source) or not os.path.isdir(path):
+            continue
+        row = {"path": path, "branch": branch, "head": head, "removable": False, "reason": None}
+        rows.append(row)
+        last = touched(path)
+        if e.get("locked") is not None:
+            row["reason"] = "locked"
+        elif any(filex.inside(c, path) for c in open_cwds if c):
+            row["reason"] = "session"
+        elif not is_clean(path):
+            row["reason"] = "dirty"
+        elif not head or not in_main(path, head) or (branch and stashed(path, branch)):
+            row["reason"] = "unpushed"
+        elif last is None or now - last < AGENT_IDLE_MIN * 60:
+            row["reason"] = "recent"
+        else:
+            row["removable"] = True
+    return rows
+
+
+def touched_at(path, g=gitx):
+    """場所 path と、その git の置き場の HEAD・index・HEAD の reflog の更新の時刻のいちばん新しい物（unix 秒）。どれも読めなければ None。"""
+    here = g.git_dir(path)
+    got = []
+    for p in [path] + ([os.path.join(here, n) for n in ("HEAD", "index", os.path.join("logs", "HEAD"))] if here else []):
+        try:
+            got.append(os.stat(p).st_mtime)
+        except OSError:
+            continue   # 無い物（index の無い作業場など）は時刻に数えない。どれも読めなければ None を返し、呼ぶ側が消さない側に倒す
+    return max(got) if got else None
+
+
+def remove_agent(row, source, g=gitx):
+    """サブエージェントの作業場の 1 行を消す: git worktree remove（--force を付けない。消すまでの間に変更か鍵が付いたら git が断る）で
+    消し、手元のブランチも消す（先頭が行の head と同じときだけ）。{path, removed, branch_deleted, detail}。書く口。"""
+    out = {"path": row["path"], "removed": False, "branch_deleted": False, "detail": None}
+    try:
+        g.remove_worktree(source, row["path"])
+    except gitx.GitError as e:
+        out["detail"] = str(e)
+        return out
+    out["removed"] = not os.path.exists(row["path"])
+    if not out["removed"]:
+        out["detail"] = "消した後の読み戻しで、場所がまだ在る"
+        return out
+    try:
+        out["branch_deleted"] = not row["branch"] or g.delete_branch(source, row["branch"], row["head"]) in ("deleted", "absent")
+    except gitx.GitError as e:
+        out["detail"] = f"場所は消したが、手元のブランチ {row['branch']} を消せなかった（{e}）"
+    if not out["branch_deleted"] and not out["detail"]:
+        out["detail"] = f"場所は消したが、手元のブランチ {row['branch']} の先頭が片付けを決めた時と違うので残した"
+    return out
+
+
 DONE = ("done", "stopped", "failed")
 
 
@@ -218,10 +301,19 @@ def departments(places, attrs_of, session_of, is_clean, unpushed, merged, head_s
 
 
 KEPT_TMP = ("company", "kept-tmp")   # 共通の .git の下の、消した部署の会話の一時の置き場の写し
-# 写しの片付け: 写すたびに、KEPT_DAYS 日より古い物と、合計が KEPT_LIMIT を超えた分の古い物を消す（誰も消さず、3 日で claude-plugins に
-# 223MB、my_notes に 132MB 溜まった。2026-10-19）。写しは消した部署の一時のファイルを後で拾うための物で、要るかは数日で分かる
-KEPT_DAYS = 14
-KEPT_LIMIT = 1024 * 1024 * 1024
+# 写しの片付け: 写すたびと --clean --apply のたびに、KEPT_DAYS 日より古い物と、合計が KEPT_LIMIT を超えた分の古い物を消す（誰も消さず、
+# 3 日で claude-plugins に 223MB、my_notes に 132MB 溜まった。2026-10-19）。写しは消した部署の一時のファイルを後で拾うための物で、要るかは
+# 数日で分かる。2026-11-28 に my_notes で 3 日で 126 件・1.2 GB になり、VM の / が満杯になった（頼み 96620c）ので、14 日・1 GiB から縮めた
+KEPT_DAYS = 7
+KEPT_LIMIT = 512 * 1024 * 1024
+# 部署の会話の Bash の TMPDIR（役を足すフックが、会話の一時の置き場の下のこの名前のフォルダに向ける。role_hook.put_tmpdir）。TMPDIR に
+# 置く物は使い捨ての決まり（mktemp・tempfile・pip・uv の作業の置き場など）なので、写さずに会話と一緒に消す
+TMPDIR_NAME = "tmpdir"
+# 写さない物: 作り直せる依存と生成物のフォルダと、KEPT_FILE_LIMIT より大きいファイル。部署が残すと書く物（要約・台本・メモ）は小さい。
+# 写さなかった物は写しの SKIPPED に並べる（何を残さなかったかを後で見られる）
+REBUILT_DIRS = frozenset({".venv", "venv", "node_modules", "__pycache__", ".mypy_cache", ".pytest_cache", ".ruff_cache", ".tox"})
+KEPT_FILE_LIMIT = 8 * 1024 * 1024
+SKIPPED = "SKIPPED.txt"
 BOARDS = "graphloops"   # graphloops が linked worktree の git の置き場（.git/worktrees/<名前>）に作る、run の記録（盤面）の置き場
 BOARDS_ARCHIVE = ("graphloops", "boards-archive")   # 共通の .git の下の、消した場所の盤面の写し（graphloops の replay_boards.py と quality-ledger.py が読む）
 ARCHIVED = ".works-dispatch-archived"   # 写しに works-dispatch が置く印。片付けは印の有る写しだけを消し、手で写した物には触らない
@@ -231,16 +323,42 @@ ARCHIVE_LIMIT = 2 * 1024 * 1024 * 1024
 
 
 def tmp_entries(path):
-    """会話の一時の置き場の中の名前の並び（無ければ空）。"""
+    """会話の一時の置き場の中の名前の並び（無ければ空）。会話の Bash の TMPDIR（TMPDIR_NAME）は写さないので数えない。"""
     try:
-        return os.listdir(path)
+        return [n for n in os.listdir(path) if n != TMPDIR_NAME]
     except OSError:
         return []
 
 
+def _skip_in_tmp(tmp):
+    """keep_tmp が写さない物を見分ける skip（_copy_over に渡す）。写さなかった物は (置き場からのパス, 大きさか None) で並びに足す。"""
+    skipped = []
+
+    def skip(path, is_dir):
+        rel = os.path.relpath(path, tmp)
+        if is_dir:
+            if rel == TMPDIR_NAME:
+                return True   # 会話の Bash の TMPDIR。使い捨ての決まりの置き場なので、写したとも数えない
+            if os.path.basename(path) in REBUILT_DIRS:
+                skipped.append((rel + "/", None))
+                return True
+            return False
+        try:
+            size = os.lstat(path).st_size
+        except OSError:
+            return False   # 読めない物は写す側で OSError にする（黙って飛ばさない）
+        if size > KEPT_FILE_LIMIT and stat.S_ISREG(os.lstat(path).st_mode):
+            skipped.append((rel, size))
+            return True
+        return False
+    return skip, skipped
+
+
 def keep_tmp(tmp, source, session, g=gitx):
     """会話の一時の置き場 tmp に物が在れば <共通の .git>/company/kept-tmp/<会話の id> に写し、(写した数, 写した先) を返す
-    （空か無ければ (0, None)）。写せなければ OSError。"""
+    （空か無ければ (0, None)）。写せなければ OSError。会話の Bash の TMPDIR（TMPDIR_NAME）と、作り直せる依存のフォルダ（REBUILT_DIRS）と、
+    KEPT_FILE_LIMIT より大きいファイルは写さず、写さなかった物を写しの SKIPPED に並べる（写すために満杯に近いディスクへ同じ量を書かない。
+    2026-11-28 の VM の / の満杯。頼み 96620c）。"""
     n = len(tmp_entries(tmp))
     if not n:
         return 0, None
@@ -248,7 +366,12 @@ def keep_tmp(tmp, source, session, g=gitx):
     if not common:
         raise OSError(f"{source} の共通の .git を読めない")
     dest = os.path.join(common, *KEPT_TMP, session)
-    _copy_over(tmp, dest)
+    skip, skipped = _skip_in_tmp(tmp)
+    _copy_over(tmp, dest, skip)
+    if skipped:
+        pathlib.Path(dest, SKIPPED).write_text(
+            "写さなかった物（作り直せる依存のフォルダと、" f"{KEPT_FILE_LIMIT // (1024 * 1024)} MiB より大きいファイル）:\n"
+            + "".join(f"{rel}\t{'-' if size is None else size}\n" for rel, size in skipped), encoding="utf-8")
     prune_kept(os.path.dirname(dest), time.time(), keep=(dest,))
     return n, dest
 
@@ -385,13 +508,14 @@ def _again_writable(func, path, err):
     func(path)
 
 
-def _copy_over(src, dest):
+def _copy_over(src, dest, skip=None):
     """src の木を dest に写す。前の回が途中で止まって dest に写しが残っていても、打ち直せば写し終える: 写し先に在る物は
     消してから写し直す（git の objects は読み取り専用で写るので、上に書けず Errno 13 になる。前の回が写したシンボリックリンクは、
     在ると作れず Errno 17 になる。2026-10-17 の --retire 点検で 701 件と 5 件）。写し先の同じ名前の物が、写し元と種類が違えば
     （ファイルとフォルダ、リンクとフォルダ）、それも消す（リンクを辿って外へ書かない）。フォルダの権限は写さない（読み取り専用の
     フォルダに写すと、次の回が中に書けない）。名前付きパイプ（FIFO）は中身を持たないので、同じ名前のパイプを作り直す（同じ日の
-    点検の置き場に 9 個在った）。読めないフォルダやソケットなど、写せない物が有れば OSError（読めないフォルダを飛ばさない）。"""
+    点検の置き場に 9 個在った）。読めないフォルダやソケットなど、写せない物が有れば OSError（読めないフォルダを飛ばさない）。
+    skip(パス, フォルダか) が真の物は写さない（フォルダなら中も辿らない）。写し先に前の回の同じ物が在っても消さない。"""
     def stop(e):
         raise e
     for root, dirs, files in os.walk(src, onerror=stop):
@@ -399,10 +523,14 @@ def _copy_over(src, dest):
         if os.path.islink(here) or (os.path.lexists(here) and not os.path.isdir(here)):
             _unlink(here)
         os.makedirs(here, exist_ok=True)
+        if skip:
+            dirs[:] = [n for n in dirs if os.path.islink(os.path.join(root, n)) or not skip(os.path.join(root, n), True)]
         for name in dirs + files:
             s, d = os.path.join(root, name), os.path.join(here, name)
             mode = os.lstat(s).st_mode
             if stat.S_ISDIR(mode):
+                continue
+            if skip and name in files and skip(s, False):
                 continue
             if os.path.isdir(d) and not os.path.islink(d):
                 shutil.rmtree(d, **{"onexc" if sys.version_info >= (3, 12) else "onerror": _again_writable})

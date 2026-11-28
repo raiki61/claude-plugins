@@ -6,6 +6,19 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+VM のディスク（/）が部署の作業場と一時の置き場で埋まらないようにする 4 つの直し（2026-11-28 に / の 145 GB が満杯になった。my_notes の受付 96620c）。
+
+### Added
+
+- 部署の会話の Bash の一時の置き場（`TMPDIR`）を、その会話の一時の置き場の下（`<設定のフォルダ>/jobs/<短い id>/tmp/tmpdir/`）に向ける。部署の会話が始まるとき、役を足すフック（会話の始まりに役の本文を会話に足す SessionStart のフック）が、Claude Code の `CLAUDE_ENV_FILE`（Bash のコマンドごとに先に走るシェルのファイル）に `export TMPDIR=…` の 1 行を足す。`mktemp`・`tempfile`・pip・uv の一時の物は、会話を消すと一緒に消える。足すのは裏の会話の部署だけで、Windows では足さない。今立っている部署には、次に会話が始まり直す（`/clear`・compact・続きからの再開）まで効かない。部署の会話には「一時の物は `$TMPDIR` に置き、/tmp を直に書かない」の 1 文も足す。まだ /tmp に書く物（会話が直に書く /tmp のパス・Claude Code 自身の作業の置き場など）は、スキルの別ファイル clean.md に並べた。
+- `--task` と、部署を新しく立てる `--ask` は、作業場を作る前にディスクの空きを確かめ、足りなければ「止めた: ディスクの空きが足りない（空き … GB・要る空き … GB）」と出して止まる。要る空きは、残す空き 5 GiB と、新しく作る worktree に書き出す量（代表の clone の HEAD の、git が追うファイルの大きさの和。読めなければ 2.5 GiB）の和。決め方は department.md に書いた。立っている部署の場所を開き直す回（`--task` の打ち直し・`--move`）は確かめない。`--dry-run` は空きと要る空きを出す。
+- `--clean` が、Claude Code のサブエージェントの作業場（`<代表の clone>/.claude/worktrees/agent-*`）を「サブエージェントの作業場」の行で並べる。鍵が無く、中で会話が開いておらず、未コミットの変更も git に足していないファイルも無く、先頭がメインブランチに入っていて、stash も無く、触ってから 60 分たった物を「消せる」と出し、`--apply` が `git worktree remove`（`--force` なし）で消し、手元のブランチも消す。前は PR の無い場所として残し続け、2026-11-28 に my_notes と guided-resolver に計 27 個・11.7 GB 溜まっていた。
+
+### Changed
+
+- 消した部署の会話の一時の置き場の写し（代表の clone の `.git/company/kept-tmp/`）を、7 日・合計 512 MiB までにした（前は 14 日・1 GiB）。写しの片付けは、写すときのほかに `--clean --apply` のたびにも走る。写しには、部署の会話の Bash の一時の置き場（`tmpdir/`）と、作り直せる依存と生成物のフォルダ（`.venv`・`node_modules`・`__pycache__` など）と、8 MiB より大きいファイルを入れず、入れなかった物を写しの `SKIPPED.txt` に並べる。2026-11-28 に my_notes で 3 日で 126 件・1.2 GB 溜まっていた。
+- PR の `/catchup` のページを VS Code の窓に開くとき、窓の socket を /tmp でも探す（部署の会話の Bash の `TMPDIR` が /tmp でなくなったため）。
+
 ## [0.174.3] - 2026-11-28
 
 ### Changed

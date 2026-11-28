@@ -748,6 +748,26 @@ def remove_detached(source, path, runner=_default_runner):
     _must(["git", "-C", source, "worktree", "remove", "--force", "--force", path], runner)
 
 
+def remove_worktree(source, path, runner=_default_runner):
+    """worktree を消す（--force を付けない。未コミットの変更か git に足していないファイルが在る・鍵が掛かっている物は git が断る〔GitError〕。
+    .gitignore に当たる物は場所ごと消える）。書く口。--clean がサブエージェントの作業場を消すのに使う。"""
+    _must(["git", "-C", source, "worktree", "remove", path], runner)
+
+
+def tree_bytes(cwd, ref="HEAD", runner=_default_runner):
+    """ref の木に載ったファイル（git が追う物）の大きさの和（バイト）。worktree を 1 つ作ると書き出される量の見積もり。
+    読めないときは None。submodule（大きさのフィールドが - の行）は数えない。"""
+    p = runner(["git", "-C", cwd, "ls-tree", "-r", "-l", "--full-tree", ref])
+    if p.returncode != 0:
+        return None
+    total = 0
+    for line in p.stdout.splitlines():
+        size = line.split("\t", 1)[0].split()[-1:]
+        if size and size[0].isdigit():
+            total += int(size[0])
+    return total
+
+
 def _unquote(text):
     """git が引用符で囲んで出した字（日本語や改行を含むと C の書き方で 8 進に直す。core.quotePath）を元に戻す。囲まれていなければそのまま。"""
     if len(text) < 2 or not (text.startswith('"') and text.endswith('"')):

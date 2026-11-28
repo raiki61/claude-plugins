@@ -491,6 +491,21 @@ class Ports:
     def now(self):
         return time.time()
 
+    def room(self, source):
+        """部署を立てる前の空きの確かめに読む値 {free, checkout}。free は元の clone とホームの在るディスクの空きの小さい方（free_bytes）。
+        checkout は元の clone の HEAD の木の大きさ（gitx.tree_bytes。読めなければ None）。"""
+        return {"free": self.free_bytes([source, str(pathlib.Path.home())]), "checkout": self.git.tree_bytes(source)}
+
+    def free_bytes(self, paths):
+        """paths の在るディスクの空き（バイト）の一番小さい値。どれも読めなければ None。"""
+        seen = {}
+        for p in paths:
+            try:
+                seen.setdefault(os.stat(p).st_dev, shutil.disk_usage(p).free)
+            except OSError:
+                continue   # 読めない場所は比べない。どれも読めなければ None を返し、呼ぶ側は止めずに「読めない」と出す
+        return min(seen.values()) if seen else None
+
     def spawn(self, argv, cwd, log, env):
         """argv を打った会話から切り離して走らせ、終わりを待たない。出力はファイル log に書き足す。POSIX では外の sh がすぐ終わり、
         中の処理は init の子になる（会話の処理が止まっても一緒に止まらない。nodes/wake.py の DETACH と同じ形）。"""
