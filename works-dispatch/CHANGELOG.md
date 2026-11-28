@@ -6,6 +6,8 @@ works-dispatch（`/works-dispatch:dispatch` スキルと、`dispatch/` のスク
 
 ## [Unreleased]
 
+## [0.176.1] - 2026-11-28
+
 ### Changed
 
 - 試験だけを直した（コマンドの動きは変えていない）。試験の点検の台帳（直す試験を 1 行ずつ並べた表）の 70 行ほどについて、出力の決まり文句を字のまま写して比べていた試験を、振る舞いを見る形に替えた。見るのは、終了コード・台帳の行・属性・`--tree --json` の出力の項目と、コードの定数から引いた字。同じ形の試験は、入力と結論の表から起こす形にまとめた。試験のクラスどうしで属性を借りていた所は、試験どうしで共に使う補助のモジュール `dispatch/tests/worlds.py` に移した。消した試験は 3 本で、どれも同じ入力で同じ結論を見る別の試験が残る。`tests/test_deliver.py` の `test_fresh_role_mid_turn_queues_the_ask` と `test_a_department_waiting_on_a_permission_prompt_is_not_typed_into` は `test_ask_queues_the_ask_without_typing_into_the_department_window` の表の行が、`tests/test_accounts.py` の `Rank.test_output_matches_schema` は `Pick.test_json_has_the_pick_every_row_and_notes` が見る（頼みの受付番号 263078。受付番号は、works-dispatch の `--ask` で部署に頼んだ仕事に振られる番号で、頼みの台帳で引ける）。
