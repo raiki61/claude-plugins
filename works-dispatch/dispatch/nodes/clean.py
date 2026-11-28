@@ -160,7 +160,7 @@ def release(source, path, h=term):
 AGENT_DIR = chat.AGENT_WORKTREES
 AGENT_PREFIX = "agent-"
 # 最後に触ってからこの分数たつまでは消さない。Claude Code はサブエージェントの最初の走りの間は作業場に鍵（git worktree lock）を掛けるが、
-# 続きから再開したサブエージェントには掛けない（同じ文書の "Worktree locks and manual removal"）。消すのは変更も commit も無い物だけなので
+# 続きから再開したサブエージェントには掛けない（同じ文書の "Worktree locks and manual removal"）。消すのは変更が無く、commit がメインブランチに入った物だけなので
 # 失う物は無いが、再開した直後のサブエージェントの作業場を消してコマンドを落とさない
 AGENT_IDLE_MIN = 60
 

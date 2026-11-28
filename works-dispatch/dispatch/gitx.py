@@ -468,7 +468,8 @@ def applied_in(cwd, sha, upstream, runner=_default_runner):
     """sha が upstream に入っているか: sha が upstream の祖先か、upstream に無い sha の側の commit（upstream..sha）が全部、同じ差分の
     commit として upstream に入っている（git cherry upstream sha の行が全部 -。rebase・cherry-pick で入ったブランチ）。
     git cherry は merge の commit を数えない（merge で足した中身が upstream に無くても - だけになる）ので、upstream..sha に merge の
-    commit が有れば偽。読めなければ偽（消さない側に倒す）。https://git-scm.com/docs/git-cherry"""
+    commit が有れば偽。git cherry の同じ差分の見分け（patch-id）は空白の違いを見ないので、空白だけ違えて入れた commit も入ったとみなす
+    （upstream に在る版が残る）。読めなければ偽（消さない側に倒す）。https://git-scm.com/docs/git-cherry ・https://git-scm.com/docs/git-patch-id"""
     if _is_ancestor(cwd, sha, upstream, runner):
         return True
     merges = _git(cwd, ["rev-list", "--merges", f"{upstream}..{sha}", "--"], runner)
