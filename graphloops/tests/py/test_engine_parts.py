@@ -157,16 +157,8 @@ def test_del_path_eats_dotted_key_longest_first():
     assert d["outputs"] == {}
 
 
-@pytest.mark.parametrize("bad", ["outputs.nope", "questions.0", "a.b.nope.deep"])
-def test_del_path_refuses_undeletable_spelling(bad):
-    """無い鍵・リストの要素・辿れない親"""
-    d = dotted_key_board()
-    del_path(d, "outputs.p1.local_review")
-    with pytest.raises(KeyError):
-        del_path(d, bad)
-
-
 def test_refused_deletes_delete_nothing():
+    """無い鍵・リストの要素・辿れない親は KeyError で断り、盤を変えない"""
     d = dotted_key_board()
     del_path(d, "outputs.p1.local_review")
     for bad in ("outputs.nope", "questions.0", "a.b.nope.deep"):

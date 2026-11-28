@@ -135,9 +135,9 @@ simulate.py の small 8 本と、research の標準の収束（e2e）1 本を移
 | 2 段以上の新設は落ちる（どちらの読みも成り立つ綴りを機械が選ばない） | test_engine_parts.py::test_set_path_refuses_creating_two_levels |
 | 落ちた綴りが途中まで書き込まれていない | test_engine_parts.py::test_refused_two_level_spelling_writes_nothing |
 | 消す口は点を含む鍵を最長一致で食って消す | test_engine_parts.py::test_del_path_eats_dotted_key_longest_first |
-| 消せない綴り outputs.nope は落ちる（無い鍵・リストの要素・辿れない親） | test_engine_parts.py::test_del_path_refuses_undeletable_spelling[outputs.nope] |
-| 消せない綴り questions.0 は落ちる（無い鍵・リストの要素・辿れない親） | test_engine_parts.py::test_del_path_refuses_undeletable_spelling[questions.0] |
-| 消せない綴り a.b.nope.deep は落ちる（無い鍵・リストの要素・辿れない親） | test_engine_parts.py::test_del_path_refuses_undeletable_spelling[a.b.nope.deep] |
+| 消せない綴り outputs.nope は落ちる（無い鍵・リストの要素・辿れない親） | test_engine_parts.py::test_refused_deletes_delete_nothing（3 つの綴りを 1 本で見る。2026-11-28 の頼み 900eef で重なりを畳んだ） |
+| 消せない綴り questions.0 は落ちる（無い鍵・リストの要素・辿れない親） | test_engine_parts.py::test_refused_deletes_delete_nothing（3 つの綴りを 1 本で見る。2026-11-28 の頼み 900eef で重なりを畳んだ） |
+| 消せない綴り a.b.nope.deep は落ちる（無い鍵・リストの要素・辿れない親） | test_engine_parts.py::test_refused_deletes_delete_nothing（3 つの綴りを 1 本で見る。2026-11-28 の頼み 900eef で重なりを畳んだ） |
 | 落ちた消しは何も消していない | test_engine_parts.py::test_refused_deletes_delete_nothing |
 
 #### test_threshold_boundaries
