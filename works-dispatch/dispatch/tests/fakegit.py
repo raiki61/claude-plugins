@@ -197,6 +197,9 @@ class FakeGit:
         a, b = self._resolve(cwd, a), self._resolve(cwd, b)
         return bool(a and b) and a in self._line(b)
 
+    def applied_in(self, cwd, sha, upstream):
+        return self.is_ancestor(cwd, sha, upstream)   # 偽物の commit は差分を持たないので、同じ差分の commit は見ない
+
     def holding_branches(self, cwd, sha, own=None):
         return sorted(b for b, tip in self.local.items() if b != own and tip and sha and sha in self._line(tip))
 

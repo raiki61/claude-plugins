@@ -367,6 +367,9 @@ class Ports:
     def is_ancestor(self, cwd, a, b):
         return self.git.is_ancestor(cwd, a, b)
 
+    def applied_in(self, cwd, sha, upstream):
+        return self.git.applied_in(cwd, sha, upstream)
+
     def pr_for_branch(self, repo, branch):
         """そのブランチの PR（{number, state, head_sha}・None）。読めなければ clean.Unknown（片付けは消さない側に倒す）。"""
         try:

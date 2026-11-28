@@ -173,11 +173,11 @@ def is_agent_place(path, source):
 
 def agent_rows(entries, source, open_cwds, is_clean, stashed, in_main, touched, now):
     """サブエージェントの作業場ごとに、消してよいか。entries は gitx.listed_worktrees。in_main(場所, commit) はその commit がメインブランチ
-    （origin の既定のブランチの手元の控え）に入っているか。touched(場所) は場所と git の置き場（HEAD・index・HEAD の reflog）の更新の時刻の
+    （origin の既定のブランチの手元の控え）に入っているか（祖先か、rebase・cherry-pick で同じ差分が全部入っている。gitx.applied_in）。touched(場所) は場所と git の置き場（HEAD・index・HEAD の reflog）の更新の時刻の
     いちばん新しい物（読めなければ None）。
     返す 1 行は {path, branch, head, removable, reason}。reason は locked（鍵が掛かっている。Claude Code が最初の走りの間に掛ける・人が
     掛けた）・session（会話の作業フォルダがその中）・dirty（未コミットの変更か git に足していないファイル）・unpushed（メインブランチに
-    無い commit か、そのブランチの上の stash）・recent（AGENT_IDLE_MIN 分の内に触った）。消してよい物は、どれにも当たらない物だけ。
+    入っていない commit・merge の commit か、そのブランチの上の stash）・recent（AGENT_IDLE_MIN 分の内に触った）。消してよい物は、どれにも当たらない物だけ。
     場所のフォルダがもう無い物は並べない（git worktree prune の受け持ち）。"""
     rows = []
     for e in sorted(entries, key=lambda e: e.get("path") or ""):

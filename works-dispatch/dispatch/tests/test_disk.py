@@ -11,6 +11,7 @@ import unittest
 
 from . import DISPATCH, fakegit  # noqa: F401
 from .test_dispatch import FakePorts, fake_cfg, run_main
+from .test_provision import git
 from . import scratch
 import gitx
 import role_hook
@@ -178,6 +179,63 @@ class AgentPlaces(unittest.TestCase):
         out = clean.remove_agent(row, self.source, G)
         self.assertFalse(out["removed"])
         self.assertIn("modified or untracked", out["detail"])
+
+
+class AppliedIn(unittest.TestCase):
+    """gitx.applied_in: rebase・cherry-pick でメインブランチに入ったサブエージェントのブランチは、先頭が祖先でなくても入ったとみなす
+    （my_notes で 2026-11-28 に、18 個中 10 個がこれで残った。頼み 3c8c5d）。merge の commit を含むブランチは git cherry が見ないので残す。"""
+
+    def setUp(self):
+        self.repo = scratch()
+        self.git("init", "-q", "-b", "main")
+        self.commit("init", "a.txt", "a\n")
+
+    def git(self, *args):
+        return git("-C", self.repo, "-c", "user.name=t", "-c", "user.email=t@t", *args)
+
+    def commit(self, msg, name, text):
+        pathlib.Path(self.repo, name).write_text(text, encoding="utf-8")
+        self.git("add", name)
+        self.git("commit", "-q", "-m", msg)
+        return self.git("rev-parse", "HEAD")
+
+    def branch(self, name, *files):
+        self.git("switch", "-q", "-c", name, "main")
+        heads = [self.commit(f"{name} {f}", f, f"{name} {f}\n") for f in files]
+        self.git("switch", "-q", "main")
+        return heads
+
+    def test_ancestor_counts(self):
+        [head] = self.branch("worktree-agent-a", "b.txt")
+        self.git("merge", "-q", "--ff-only", "worktree-agent-a")
+        self.assertTrue(gitx.applied_in(self.repo, head, "main"))
+
+    def test_cherry_picked_commits_count(self):
+        heads = self.branch("worktree-agent-a", "b.txt", "c.txt")
+        self.commit("main moves", "m.txt", "m\n")   # 先頭を祖先でなくする
+        self.git("cherry-pick", *heads)
+        self.assertFalse(gitx.is_ancestor(self.repo, heads[-1], "main"))
+        self.assertTrue(gitx.applied_in(self.repo, heads[-1], "main"))
+
+    def test_one_commit_not_in_main_keeps_it(self):
+        heads = self.branch("worktree-agent-a", "b.txt", "c.txt")
+        self.commit("main moves", "m.txt", "m\n")
+        self.git("cherry-pick", heads[0])
+        self.assertFalse(gitx.applied_in(self.repo, heads[-1], "main"))
+
+    def test_a_merge_commit_keeps_it(self):
+        [side] = self.branch("side", "s.txt")
+        self.git("switch", "-q", "-c", "worktree-agent-a", "main")
+        self.git("merge", "-q", "--no-ff", "-m", "merge side", "side")
+        head = self.git("rev-parse", "HEAD")
+        self.git("switch", "-q", "main")
+        self.commit("main moves", "m.txt", "m\n")
+        self.git("cherry-pick", side)
+        self.assertFalse(gitx.applied_in(self.repo, head, "main"))
+
+    def test_unreadable_upstream_keeps_it(self):
+        [head] = self.branch("worktree-agent-a", "b.txt")
+        self.assertFalse(gitx.applied_in(self.repo, head, "origin/no-such"))
 
 
 class AgentBoards(unittest.TestCase):

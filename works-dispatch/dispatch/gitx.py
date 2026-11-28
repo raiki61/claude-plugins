@@ -464,6 +464,20 @@ def is_ancestor(cwd, a, b, runner=_default_runner):
     return _is_ancestor(cwd, a, b, runner)
 
 
+def applied_in(cwd, sha, upstream, runner=_default_runner):
+    """sha が upstream に入っているか: sha が upstream の祖先か、upstream に無い sha の側の commit（upstream..sha）が全部、同じ差分の
+    commit として upstream に入っている（git cherry upstream sha の行が全部 -。rebase・cherry-pick で入ったブランチ）。
+    git cherry は merge の commit を数えない（merge で足した中身が upstream に無くても - だけになる）ので、upstream..sha に merge の
+    commit が有れば偽。読めなければ偽（消さない側に倒す）。https://git-scm.com/docs/git-cherry"""
+    if _is_ancestor(cwd, sha, upstream, runner):
+        return True
+    merges = _git(cwd, ["rev-list", "--merges", f"{upstream}..{sha}", "--"], runner)
+    if merges is None or merges:
+        return False
+    out = _git(cwd, ["cherry", upstream, sha], runner)
+    return out is not None and all(line.startswith("- ") for line in out.splitlines())
+
+
 def holding_branches(cwd, sha, own=None, runner=_default_runner):
     """手元のブランチ（refs/heads/*。worktree の間で共有）のうち、先頭か祖先に sha を持つ物の名前の並び（名前の順。own は除く）。
     読めなければ空（無いとみなし、消さない側に倒す）。--retire が、部署のブランチのほかに部署の先頭を持つ控えのブランチ

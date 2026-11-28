@@ -2527,13 +2527,14 @@ def _tool_places(repo, ports, apply):
 
 AGENT_REASONS = {"locked": "鍵が掛かっている（サブエージェントが最初の走りの途中か、人が掛けた）", "session": "会話の作業フォルダがその中",
                  "dirty": "未コミットの変更か git に足していないファイルが有る",
-                 "unpushed": "メインブランチに無い commit か、そのブランチの上の stash が有る",
+                 "unpushed": "メインブランチに入っていない commit（rebase・cherry-pick で同じ差分が入った commit は入ったとみなす）か、merge の commit か、"
+                             "そのブランチの上の stash が有る",
                  "recent": f"{clean.AGENT_IDLE_MIN} 分の内に触った（再開したサブエージェントが使っているかもしれない）"}
 
 
 def _agent_places(repo, ports, apply, cwds, notes):
-    """Claude Code のサブエージェントの作業場（<元の clone>/.claude/worktrees/agent-*）を並べ、apply なら変更もメインブランチに無い commit も
-    無い物を消す（clean.agent_rows・clean.remove_agent）。(消せなかった数, 消せる物が在ったか, 並べた数)。メインブランチを読めなければ、
+    """Claude Code のサブエージェントの作業場（<元の clone>/.claude/worktrees/agent-*）を並べ、apply なら変更もメインブランチに入っていない
+    commit も無い物を消す（clean.agent_rows・clean.remove_agent。rebase・cherry-pick で同じ差分が入った commit は入ったとみなす。gitx.applied_in）。(消せなかった数, 消せる物が在ったか, 並べた数)。メインブランチを読めなければ、
     並べずに注記を足す。"""
     listed = [e for e in ports.git.listed_worktrees(repo.source) if clean.is_agent_place(e["path"], repo.source)]
     if not listed:
@@ -2544,7 +2545,7 @@ def _agent_places(repo, ports, apply, cwds, notes):
         notes.append(f"サブエージェントの作業場の片付けを飛ばした（既定のブランチを読めない: {e}）")
         return 0, False, 0
     rows = clean.agent_rows(listed, repo.source, cwds, ports.is_clean, ports.stashed,
-                            lambda path, sha: ports.is_ancestor(path, sha, main), lambda path: clean.touched_at(path, ports.git),
+                            lambda path, sha: ports.applied_in(path, sha, main), lambda path: clean.touched_at(path, ports.git),
                             ports.now())
     for r in rows:
         print(f"サブエージェントの作業場 {r['path']}  " + ("消せる" if r["removable"] else f"残す（{AGENT_REASONS[r['reason']]}）"))
